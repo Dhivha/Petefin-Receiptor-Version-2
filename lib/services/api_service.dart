@@ -1,0 +1,704 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+
+class ApiService {
+  // The two URLs that should alternate when one is not working
+  static const String _primaryUrl = 'https://ndvf9jzb-7003.uks1.devtunnels.ms';
+  static const String _secondaryUrl = 'https://ndvf9jzb-7003.uks1.devtunnels.ms';
+  
+  static const String _activeUrlKey = 'active_url';
+  static const String _lastFailedUrlKey = 'last_failed_url';
+  
+  String _currentUrl = _primaryUrl;
+  bool _isInitialized = false;
+  
+  // Singleton pattern
+  static final ApiService _instance = ApiService._internal();
+  factory ApiService() => _instance;
+  ApiService._internal();
+  
+  /// Initialize the service and determine which URL to use
+  Future<void> initialize() async {
+    if (_isInitialized) return;
+    
+    // FORCE PRIMARY URL FOR REPAYMENTS - secondary doesn't have endpoints
+    _currentUrl = _primaryUrl;
+    
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_activeUrlKey, _currentUrl);
+    
+    _isInitialized = true;
+    print('ApiService FORCED to primary URL: $_currentUrl');
+  }
+  
+  /// Switch to the alternative URL
+  void _switchUrl() {
+    _currentUrl = _currentUrl == _primaryUrl ? _secondaryUrl : _primaryUrl;
+    _saveActiveUrl();
+    print('Switched to URL: $_currentUrl');
+  }
+  
+  /// Save the currently active URL
+  Future<void> _saveActiveUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_activeUrlKey, _currentUrl);
+  }
+  
+  /// Mark the current URL as failed and switch to alternative
+  Future<void> _markCurrentUrlAsFailed() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_lastFailedUrlKey, _currentUrl);
+    _switchUrl();
+  }
+  
+  /// Check internet connectivity
+  Future<bool> _checkConnectivity() async {
+    final connectivityResult = await Connectivity().checkConnectivity();
+    return connectivityResult != ConnectivityResult.none;
+  }
+  
+  /// Make HTTP GET request with automatic URL fallback
+  Future<http.Response> get(String endpoint, {Map<String, String>? headers}) async {
+    await initialize();
+    
+    if (!await _checkConnectivity()) {
+      throw Exception('No internet connection available');
+    }
+    
+    final url = '$_currentUrl$endpoint';
+    
+    try {
+      print('Making GET request to: $url');
+      final response = await http.get(
+        Uri.parse(url),
+        headers: headers ?? {'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 30));
+      
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        // Request successful
+        return response;
+      } else if (response.statusCode >= 500) {
+        // Server error - try alternative URL
+        throw HttpException('Server error: ${response.statusCode}');
+      } else {
+        // Client error - don't switch URLs
+        return response;
+      }
+      
+    } on SocketException catch (e) {
+      print('Network error on $_currentUrl: $e');
+      await _markCurrentUrlAsFailed();
+      return _retryRequest(() => get(endpoint, headers: headers));
+    } on HttpException catch (e) {
+      print('HTTP error on $_currentUrl: $e');
+      await _markCurrentUrlAsFailed();
+      return _retryRequest(() => get(endpoint, headers: headers));
+    } catch (e) {
+      print('Unexpected error on $_currentUrl: $e');
+      await _markCurrentUrlAsFailed();
+      return _retryRequest(() => get(endpoint, headers: headers));
+    }
+  }
+  
+  /// Make HTTP POST request with automatic URL fallback
+  Future<http.Response> post(String endpoint, {Map<String, String>? headers, Object? body}) async {
+    await initialize();
+    
+    if (!await _checkConnectivity()) {
+      throw Exception('No internet connection available');
+    }
+    
+    final url = '$_currentUrl$endpoint';
+    
+    try {
+      print('Making POST request to: $url');
+      final response = await http.post(
+        Uri.parse(url),
+        headers: headers ?? {'Content-Type': 'application/json'},
+        body: body,
+      ).timeout(const Duration(seconds: 30));
+      
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        // Request successful
+        return response;
+      } else if (response.statusCode >= 500) {
+        // Server error - try alternative URL
+        throw HttpException('Server error: ${response.statusCode}');
+      } else {
+        // Client error - don't switch URLs
+        return response;
+      }
+      
+    } on SocketException catch (e) {
+      print('Network error on $_currentUrl: $e');
+      await _markCurrentUrlAsFailed();
+      return _retryRequest(() => post(endpoint, headers: headers, body: body));
+    } on HttpException catch (e) {
+      print('HTTP error on $_currentUrl: $e');
+      await _markCurrentUrlAsFailed();
+      return _retryRequest(() => post(endpoint, headers: headers, body: body));
+    } catch (e) {
+      print('Unexpected error on $_currentUrl: $e');
+      await _markCurrentUrlAsFailed();
+      return _retryRequest(() => post(endpoint, headers: headers, body: body));
+    }
+  }
+  
+  /// Retry the request with the alternative URL (only once)
+  Future<http.Response> _retryRequest(Future<http.Response> Function() requestFunction) async {
+    try {
+      print('Retrying request with alternative URL: $_currentUrl');
+      return await requestFunction();
+    } catch (e) {
+      // Both URLs failed
+      throw Exception('Both API endpoints are currently unavailable. Please try again later.');
+    }
+  }
+  
+  /// Get the current active URL
+  String getCurrentUrl() {
+    return _currentUrl;
+  }
+  
+  /// Force switch to the other URL (for manual testing)
+  Future<void> forceSwitchUrl() async {
+    _switchUrl();
+    print('Manually switched to: $_currentUrl');
+  }
+  
+  /// Reset to primary URL
+  Future<void> resetToPrimaryUrl() async {
+    _currentUrl = _primaryUrl;
+    await _saveActiveUrl();
+    print('Reset to primary URL: $_currentUrl');
+  }
+  
+  /// Test both URLs to see which one is working
+  Future<Map<String, bool>> testBothUrls() async {
+    final results = <String, bool>{};
+    
+    // Test primary URL
+    try {
+      final response = await http.get(
+        Uri.parse(_primaryUrl),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 10));
+      results[_primaryUrl] = response.statusCode >= 200 && response.statusCode < 400;
+    } catch (e) {
+      results[_primaryUrl] = false;
+    }
+
+    // Test secondary URL  
+    try {
+      final response = await http.get(
+        Uri.parse(_secondaryUrl),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 10));
+      results[_secondaryUrl] = response.statusCode >= 200 && response.statusCode < 400;
+    } catch (e) {
+      results[_secondaryUrl] = false;
+    }
+    
+    return results;
+  }
+
+  /// Login with WhatsApp contact and PIN
+  Future<http.Response> login(String whatsAppContact, String pin) async {
+    final loginData = {
+      "WhatsAppContact": whatsAppContact,
+      "Pin": pin,
+    };
+    
+    try {
+      final response = await post(
+        '/api/Login',
+        body: json.encode(loginData),
+        headers: {'Content-Type': 'application/json'},
+      );
+      
+      print('Login response status: ${response.statusCode}');
+      print('Login response body: ${response.body}');
+      
+      return response;
+    } catch (e) {
+      print('Login error: $e');
+      rethrow;
+    }
+  }
+
+  /// Load clients for a specific branch
+  Future<http.Response> loadClients(String branchName) async {
+    try {
+      final response = await get('/api/QuickLoadClients/load-clients?branchName=${Uri.encodeComponent(branchName)}');
+      
+      print('Load clients response status: ${response.statusCode}');
+      print('Load clients response body length: ${response.body.length}');
+      
+      return response;
+    } catch (e) {
+      print('Load clients error: $e');
+      rethrow;
+    }
+  }
+
+  /// Test secondary URL connectivity  
+  Future<http.Response> testSecondaryUrl() async {
+    try {
+      final response = await http.get(
+        Uri.parse(_secondaryUrl),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 10));
+      return response;
+    } catch (e) {
+      print('Secondary URL test failed: $e');
+      rethrow;
+    }
+  }
+
+  /// Load disbursements for a specific client
+  Future<http.Response> loadDisbursements(String clientId) async {
+    try {
+      final response = await get('/api/Disbursement/get-client-disbursements?clientId=$clientId');
+      
+      print('Load disbursements response status: ${response.statusCode}');
+      print('Load disbursements response body length: ${response.body.length}');
+      
+      return response;
+    } catch (e) {
+      print('Load disbursements error: $e');
+      rethrow;
+    }
+  }
+
+  /// Submit USD repayment
+  Future<http.Response> submitUSDRepayment(Map<String, dynamic> repaymentData) async {
+    try {
+      final response = await post(
+        '/api/Repayment/add-repayment',
+        body: json.encode(repaymentData),
+        headers: {'Content-Type': 'application/json'},
+      );
+      
+      print('Submit USD repayment response status: ${response.statusCode}');
+      print('Submit USD repayment response body: ${response.body}');
+      
+      return response;
+    } catch (e) {
+      print('Submit USD repayment error: $e');
+      rethrow;
+    }
+  }
+
+  /// Submit ZWG repayment
+  Future<http.Response> submitZWGRepayment(Map<String, dynamic> repaymentData) async {
+    try {
+      // Use separate ZWG endpoint as originally designed
+      final response = await post(
+        '/api/ZWGRepayment/add-repayment',
+        body: json.encode(repaymentData),
+        headers: {'Content-Type': 'application/json'},
+      );
+      
+      print('Submit ZWG repayment response status: ${response.statusCode}');
+      print('Submit ZWG repayment response body: ${response.body}');
+      
+      return response;
+    } catch (e) {
+      print('Submit ZWG repayment error: $e');
+      rethrow;
+    }
+  }
+
+  /// Load receipt numbers by branch and user
+  Future<http.Response> loadReceiptNumbers(String branch, int userId) async {
+    try {
+      final response = await get('/api/GenerateReceiptNumber/bybranchuser?branch=${Uri.encodeComponent(branch)}&userId=$userId');
+      
+      print('Load receipt numbers response status: ${response.statusCode}');
+      print('Load receipt numbers response body length: ${response.body.length}');
+      
+      return response;
+    } catch (e) {
+      print('Load receipt numbers error: $e');
+      rethrow;
+    }
+  }
+
+  /// Cancel a repayment
+  Future<http.Response> cancelRepayment(Map<String, dynamic> cancellationData) async {
+    try {
+      final response = await post(
+        '/api/CancelledRepayments/cancel-repayment',
+        body: json.encode(cancellationData),
+        headers: {'Content-Type': 'application/json'},
+      );
+      
+      print('Cancel repayment response status: ${response.statusCode}');
+      print('Cancel repayment response body: ${response.body}');
+      
+      return response;
+    } catch (e) {
+      print('Cancel repayment error: $e');
+      rethrow;
+    }
+  }
+
+  /// Get cancelled repayments by branch
+  Future<http.Response> getCancelledRepayments(String branch) async {
+    try {
+      final response = await get('/api/CancelledRepayments/get-cancelled-repayments?branch=${Uri.encodeComponent(branch)}');
+      
+      print('Get cancelled repayments response status: ${response.statusCode}');
+      print('Get cancelled repayments response body length: ${response.body.length}');
+      
+      return response;
+    } catch (e) {
+      print('Get cancelled repayments error: $e');
+      rethrow;
+    }
+  }
+
+  /// Add penalty fee
+  Future<http.Response> addPenaltyFee(Map<String, dynamic> penaltyFeeData) async {
+    try {
+      final response = await post(
+        '/api/OtherIncome/add-penaltyfee',
+        body: json.encode(penaltyFeeData),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('Add penalty fee response status: ${response.statusCode}');
+      print('Add penalty fee response body: ${response.body}');
+
+      return response;
+    } catch (e) {
+      print('Add penalty fee error: $e');
+      rethrow;
+    }
+  }
+
+  Future<http.Response> addFinalPenaltyFee(Map<String, dynamic> finalPenaltyFeeData) async {
+    try {
+      final response = await post(
+        '/api/FinalPenaltyFees/add',
+        body: json.encode(finalPenaltyFeeData),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('Add final penalty fee response status: ${response.statusCode}');
+      print('Add final penalty fee response body: ${response.body}');
+
+      return response;
+    } catch (e) {
+      print('Add final penalty fee error: $e');
+      rethrow;
+    }
+  }
+
+  /// Cancel penalty receipt
+  Future<http.Response> cancelPenaltyReceipt(Map<String, dynamic> cancellationData) async {
+    try {
+      final response = await post(
+        '/api/CancelPenaltyReceipts/cancel-penalty-receipt',
+        body: json.encode(cancellationData),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('Cancel penalty receipt response status: ${response.statusCode}');
+      print('Cancel penalty receipt response body: ${response.body}');
+
+      return response;
+    } catch (e) {
+      print('Cancel penalty receipt error: $e');
+      rethrow;
+    }
+  }
+
+  /// Cancel admin receipt
+  Future<http.Response> cancelAdminReceipt(Map<String, dynamic> cancellationData) async {
+    try {
+      final response = await post(
+        '/api/CancelledAdmin/cancel-admin-receipt',
+        body: json.encode(cancellationData),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('Cancel admin receipt response status: ${response.statusCode}');
+      print('Cancel admin receipt response body: ${response.body}');
+
+      return response;
+    } catch (e) {
+      print('Cancel admin receipt error: $e');
+      rethrow;
+    }
+  }
+
+  /// Cancel FCB receipt
+  Future<http.Response> cancelFCBReceipt(Map<String, dynamic> cancellationData) async {
+    try {
+      final response = await post(
+        '/api/CancelledAdmin/cancel-admin-receipt', // Same endpoint as admin
+        body: json.encode(cancellationData),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('Cancel FCB receipt response status: ${response.statusCode}');
+      print('Cancel FCB receipt response body: ${response.body}');
+
+      return response;
+    } catch (e) {
+      print('Cancel FCB receipt error: $e');
+      rethrow;
+    }
+  }
+
+  /// Get cancelled penalty receipts by branch
+  Future<http.Response> getCancelledPenaltyReceipts(String branch) async {
+    try {
+      final response = await get('/api/CancelPenaltyReceipts/get-cancelled-penalty-receipts?branch=${Uri.encodeComponent(branch)}');
+      print('Get cancelled penalty receipts response status: ${response.statusCode}');
+      print('Get cancelled penalty receipts response body length: ${response.body.length}');
+      return response;
+    } catch (e) {
+      print('Get cancelled penalty receipts error: $e');
+      rethrow;
+    }
+  }
+
+  // ===== ADMIN FEES RECEIPT METHODS =====
+
+  /// Post admin fees receipt
+  Future<http.Response> postAdminFeesReceipt(Map<String, dynamic> adminData) async {
+    try {
+      final response = await post(
+        '/api/AdminFeesReceipt/post-admin',
+        body: json.encode(adminData),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('Post admin fees receipt response status: ${response.statusCode}');
+      print('Post admin fees receipt response body: ${response.body}');
+
+      return response;
+    } catch (e) {
+      print('Post admin fees receipt error: $e');
+      rethrow;
+    }
+  }
+
+  // ===== FCB RECEIPT METHODS =====
+
+  /// Post FCB receipt
+  Future<http.Response> postFCBReceipt(Map<String, dynamic> fcbData) async {
+    try {
+      final response = await post(
+        '/api/FCBReceipt',
+        body: json.encode(fcbData),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('Post FCB receipt response status: ${response.statusCode}');
+      print('Post FCB receipt response body: ${response.body}');
+
+      return response;
+    } catch (e) {
+      print('Post FCB receipt error: $e');
+      rethrow;
+    }
+  }
+
+  // ===== CANCELLATION METHODS =====
+
+  /// Post cancellation for admin receipt
+  Future<http.Response> postCancelledAdminReceipt(Map<String, dynamic> cancellationData) async {
+    try {
+      final response = await post(
+        '/api/CancelledAdmin/cancel-admin-receipt',
+        body: json.encode(cancellationData),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('Post cancelled admin receipt response status: ${response.statusCode}');
+      print('Post cancelled admin receipt response body: ${response.body}');
+
+      return response;
+    } catch (e) {
+      print('Post cancelled admin receipt error: $e');
+      rethrow;
+    }
+  }
+
+  /// Get all branches
+  Future<http.Response> getBranches() async {
+    try {
+      final response = await get('/api/Branch');
+      
+      print('Get branches response status: ${response.statusCode}');
+      print('Get branches response body: ${response.body}');
+      
+      return response;
+    } catch (e) {
+      print('Get branches error: $e');
+      rethrow;
+    }
+  }
+
+  /// Post cancelled admin receipt without throwing exceptions (for background sync)
+  Future<bool> syncCancelledAdminReceipt({
+    required String receiptNumber,
+    required String receiptType, 
+    required String reason,
+    required String branch,
+  }) async {
+    try {
+      final cancellationData = {
+        'receiptNumber': receiptNumber,
+        'receiptType': receiptType,
+        'reason': reason, 
+        'branch': branch,
+      };
+      
+      final response = await postCancelledAdminReceipt(cancellationData);
+      return response.statusCode >= 200 && response.statusCode < 300;
+    } catch (e) {
+      print('Background sync failed for cancellation: $e');
+      return false;
+    }
+  }
+
+  // ===== TRANSFER METHODS =====
+
+  /// Submit USD Cash transfer
+  Future<http.Response> submitUSDCashTransfer(Map<String, dynamic> transferData) async {
+    try {
+      final response = await post(
+        '/api/Transfers',
+        body: json.encode(transferData),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('Submit USD Cash transfer response status: ${response.statusCode}');
+      print('Submit USD Cash transfer response body: ${response.body}');
+
+      return response;
+    } catch (e) {
+      print('Submit USD Cash transfer error: $e');
+      rethrow;
+    }
+  }
+
+  /// Submit USD Bank transfer
+  Future<http.Response> submitUSDBankTransfer(Map<String, dynamic> transferData) async {
+    try {
+      final response = await post(
+        '/api/BankTransfers',
+        body: json.encode(transferData),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('Submit USD Bank transfer response status: ${response.statusCode}');
+      print('Submit USD Bank transfer response body: ${response.body}');
+
+      return response;
+    } catch (e) {
+      print('Submit USD Bank transfer error: $e');
+      rethrow;
+    }
+  }
+
+  /// Submit ZWG Bank transfer
+  Future<http.Response> submitZWGBankTransfer(Map<String, dynamic> transferData) async {
+    try {
+      final response = await post(
+        '/api/ZWGTransfers',
+        body: json.encode(transferData),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('Submit ZWG Bank transfer response status: ${response.statusCode}');
+      print('Submit ZWG Bank transfer response body: ${response.body}');
+
+      return response;
+    } catch (e) {
+      print('Submit ZWG Bank transfer error: $e');
+      rethrow;
+    }
+  }
+
+  /// Background sync for transfers - returns true if successful
+  Future<bool> syncTransfer(Map<String, dynamic> transferData, String transferType) async {
+    try {
+      http.Response response;
+      
+      switch (transferType) {
+        case 'USD_CASH':
+          response = await submitUSDCashTransfer(transferData);
+          break;
+        case 'USD_BANK':
+          response = await submitUSDBankTransfer(transferData);
+          break;
+        case 'ZWG_BANK':
+          response = await submitZWGBankTransfer(transferData);
+          break;
+        default:
+          print('Unknown transfer type: $transferType');
+          return false;
+      }
+      
+      bool isSuccess = response.statusCode >= 200 && response.statusCode < 300;
+      if (isSuccess) {
+        print('Transfer sync successful for type: $transferType');
+      } else {
+        print('Transfer sync failed for type: $transferType - Status: ${response.statusCode}');
+      }
+      
+      return isSuccess;
+    } catch (e) {
+      print('Background sync failed for transfer: $e');
+      return false;
+    }
+  }
+
+  // ===== EXPENSE METHODS =====
+
+  /// Submit expense
+  Future<http.Response> submitExpense(Map<String, dynamic> expenseData) async {
+    try {
+      final response = await post(
+        '/api/Expenses',
+        body: json.encode(expenseData),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('Submit expense response status: ${response.statusCode}');
+      print('Submit expense response body: ${response.body}');
+
+      return response;
+    } catch (e) {
+      print('Submit expense error: $e');
+      rethrow;
+    }
+  }
+
+  /// Background sync for expenses - returns true if successful
+  Future<bool> syncExpense(Map<String, dynamic> expenseData) async {
+    try {
+      final response = await submitExpense(expenseData);
+      
+      bool isSuccess = response.statusCode >= 200 && response.statusCode < 300;
+      if (isSuccess) {
+        print('Expense sync successful');
+      } else {
+        print('Expense sync failed - Status: ${response.statusCode}');
+      }
+      
+      return isSuccess;
+    } catch (e) {
+      print('Background sync failed for expense: $e');
+      return false;
+    }
+  }
+}

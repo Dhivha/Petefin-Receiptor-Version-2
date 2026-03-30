@@ -1,0 +1,1350 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import '../models/user.dart';
+import '../models/client.dart';
+import '../models/disbursement.dart';
+import '../models/repayment.dart';
+import '../models/receipt_number.dart';
+import '../models/cancelled_repayment.dart';
+import '../models/penalty_fee.dart';
+import '../models/cancelled_penalty_fee.dart';
+import 'api_service.dart';
+import 'database_helper.dart';
+
+class AuthService {
+  final ApiService _apiService = ApiService();
+  final DatabaseHelper _databaseHelper = DatabaseHelper();
+
+  // Singleton pattern
+  static final AuthService _instance = AuthService._internal();
+  factory AuthService() => _instance;
+  AuthService._internal();
+
+  User? _currentUser;
+
+  /// Get the current logged-in user
+  User? get currentUser => _currentUser;
+
+  /// Check if user is logged in
+  bool get isLoggedIn => _currentUser?.isAuthenticated ?? false;
+
+  /// Initialize the authentication service and check if user is already logged in
+  Future<void> initialize() async {
+    try {
+      _currentUser = await _databaseHelper.getUser();
+      print('AuthService initialized. User logged in: ${isLoggedIn}');
+    } catch (e) {
+      print('Error initializing AuthService: $e');
+      _currentUser = null;
+    }
+  }
+
+  /// Login with WhatsApp contact and PIN
+  Future<LoginResult> login(String whatsAppContact, String pin) async {
+    try {
+      // Validate input
+      if (whatsAppContact.isEmpty || pin.isEmpty) {
+        return LoginResult(
+          success: false,
+          message: 'WhatsApp contact and PIN are required',
+        );
+      }
+
+      // Call API
+      final response = await _apiService.login(whatsAppContact, pin);
+
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+
+        // Check if login was successful
+        if (responseData['IsAuthenticated'] == true) {
+          // Create user object
+          final user = User.fromJson(responseData);
+
+          // Save user to database
+          await _databaseHelper.deleteUser(); // Clear any existing user
+          await _databaseHelper.insertUser(user);
+
+          // Update current user
+          _currentUser = user;
+
+          print('Login successful for user: ${user.fullName}');
+
+          return LoginResult(
+            success: true,
+            message: responseData['Message'] ?? 'Login successful',
+            user: user,
+          );
+        } else {
+          return LoginResult(
+            success: false,
+            message: responseData['Message'] ?? 'Login failed',
+          );
+        }
+      } else {
+        // Handle HTTP error responses
+        String errorMessage;
+        try {
+          final errorData = json.decode(response.body);
+          errorMessage =
+              errorData['Message'] ??
+              'Login failed. Please check your credentials.';
+        } catch (e) {
+          errorMessage =
+              'Login failed. Server returned status: ${response.statusCode}';
+        }
+
+        return LoginResult(success: false, message: errorMessage);
+      }
+    } catch (e) {
+      print('Login error: $e');
+      return LoginResult(
+        success: false,
+        message:
+            'Failed to connect to server. Please check your internet connection.',
+      );
+    }
+  }
+
+  /// Logout the current user
+  Future<void> logout() async {
+    try {
+      // Clear user from database
+      await _databaseHelper.deleteUser();
+
+      // Clear current user
+      _currentUser = null;
+
+      print('User logged out successfully');
+    } catch (e) {
+      print('Error during logout: $e');
+      // Still clear current user even if database operation fails
+      _currentUser = null;
+    }
+  }
+
+  /// Load and sync clients for the current user's branch
+  Future<ClientSyncResult> syncClientsForCurrentUser() async {
+    if (!isLoggedIn || _currentUser == null) {
+      return ClientSyncResult(
+        success: false,
+        message: 'User not logged in',
+        clientsLoaded: 0,
+      );
+    }
+
+    return await syncClients(_currentUser!.branch);
+  }
+
+  /// Load and sync clients for a specific branch
+  Future<ClientSyncResult> syncClients(String branchName) async {
+    try {
+      print('Syncing clients for branch: $branchName');
+
+      // Call API to load clients
+      final response = await _apiService.loadClients(branchName);
+
+      if (response.statusCode == 200) {
+        final List<dynamic> clientsData = json.decode(response.body);
+
+        // Convert to Client objects
+        final clients = clientsData
+            .map((data) => Client.fromJson(data))
+            .toList();
+
+        // Save to database
+        await _databaseHelper.insertMultipleClients(clients);
+
+        print(
+          'Successfully synced ${clients.length} clients for branch: $branchName',
+        );
+
+        return ClientSyncResult(
+          success: true,
+          message: 'Successfully synced ${clients.length} clients',
+          clientsLoaded: clients.length,
+          clients: clients,
+        );
+      } else {
+        print('Failed to load clients. Status: ${response.statusCode}');
+        return ClientSyncResult(
+          success: false,
+          message: 'Failed to load clients from server',
+          clientsLoaded: 0,
+        );
+      }
+    } catch (e) {
+      print('Error syncing clients: $e');
+      return ClientSyncResult(
+        success: false,
+        message:
+            'Failed to sync clients. Please check your internet connection.',
+        clientsLoaded: 0,
+      );
+    }
+  }
+
+  /// Auto-sync clients in the background
+  Future<void> autoSyncClients() async {
+    if (!isLoggedIn || _currentUser == null) {
+      return;
+    }
+
+    try {
+      // Check if we need to sync (e.g., if it's been more than 1 hour since last sync)
+      final lastSync = await _databaseHelper.getLastClientSyncTime();
+      final now = DateTime.now();
+
+      if (lastSync == null || now.difference(lastSync).inHours >= 1) {
+        print('Auto-syncing clients...');
+        await syncClientsForCurrentUser();
+      } else {
+        print('Clients recently synced. Skipping auto-sync.');
+      }
+    } catch (e) {
+      print('Error during auto-sync: $e');
+    }
+  }
+
+  /// Get all clients from local database
+  Future<List<Client>> getLocalClients() async {
+    return await _databaseHelper.getAllClients();
+  }
+
+  /// Search clients locally
+  Future<List<Client>> searchClients(String query) async {
+    return await _databaseHelper.searchClients(query);
+  }
+
+  /// Get client by ID from local database
+  Future<Client?> getClientById(String clientId) async {
+    return await _databaseHelper.getClientById(clientId);
+  }
+
+  /// Get clients count
+  Future<int> getClientsCount() async {
+    return await _databaseHelper.getClientsCount();
+  }
+
+  /// Refresh user data from local storage
+  Future<void> refreshUser() async {
+    _currentUser = await _databaseHelper.getUser();
+  }
+
+  /// Clear all local data (for debugging/reset purposes)
+  Future<void> clearAllData() async {
+    await _databaseHelper.deleteUser();
+    await _databaseHelper.deleteAllClients();
+    await _databaseHelper.deleteAllDisbursements();
+    await _databaseHelper.deleteAllRepayments();
+    _currentUser = null;
+    print('All local data cleared');
+  }
+
+  /// Create and store a repayment locally
+  Future<RepaymentResult> createRepayment({
+    required int disbursementId,
+    required String clientId,
+    required double amount,
+    required DateTime dateOfPayment,
+    required String paymentNumber,
+    required String currency,
+    required String clientName,
+    bool force = true,
+  }) async {
+    if (_currentUser == null) {
+      return RepaymentResult(
+        success: false,
+        message: 'User not logged in',
+        receiptNumber: null,
+      );
+    }
+
+    try {
+      // Generate receipt number
+      final receiptNumber = Repayment.generateReceiptNumber();
+
+      // Create repayment object
+      final repayment = Repayment(
+        disbursementId: disbursementId,
+        clientId: clientId,
+        amount: amount,
+        branch: _currentUser!.branch,
+        dateOfPayment: dateOfPayment,
+        paymentNumber: paymentNumber,
+        force: force,
+        receiptNumber: receiptNumber,
+        currency: currency,
+        clientName: clientName,
+        createdAt: DateTime.now(),
+      );
+
+      // Store locally
+      await _databaseHelper.insertRepayment(repayment);
+
+      print('Repayment created locally: $receiptNumber for $currency $amount');
+
+      // Try to sync immediately if we have internet (with small delay to ensure DB write completes)
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _autoSyncRepayments();
+      });
+
+      return RepaymentResult(
+        success: true,
+        message: 'Repayment created successfully',
+        receiptNumber: receiptNumber,
+        repayment: repayment,
+      );
+    } catch (e) {
+      print('Error creating repayment: $e');
+      return RepaymentResult(
+        success: false,
+        message: 'Failed to create repayment: $e',
+        receiptNumber: null,
+      );
+    }
+  }
+
+  /// Auto-sync unsynced repayments in background
+  Future<void> _autoSyncRepayments() async {
+    try {
+      final unsyncedRepayments = await _databaseHelper.getUnsyncedRepayments();
+      if (unsyncedRepayments.isEmpty) {
+        print('No unsynced repayments to sync');
+        return;
+      }
+
+      print('Auto-syncing ${unsyncedRepayments.length} repayments...');
+
+      for (final repayment in unsyncedRepayments) {
+        try {
+          late http.Response response;
+
+          if (repayment.currency == 'USD') {
+            response = await _apiService.submitUSDRepayment(repayment.toJson());
+          } else {
+            response = await _apiService.submitZWGRepayment(repayment.toJson());
+          }
+
+          if (response.statusCode >= 200 && response.statusCode < 300) {
+            // Success - mark as synced
+            await _databaseHelper.updateRepaymentSyncStatus(
+              repayment.receiptNumber,
+              true,
+              syncResponse: 'Success: ${response.statusCode}',
+            );
+            print('✅ Synced repayment ${repayment.receiptNumber}');
+          } else {
+            // Server error - update sync response but keep as unsynced
+            await _databaseHelper.updateRepaymentSyncStatus(
+              repayment.receiptNumber,
+              false,
+              syncResponse: 'Error: ${response.statusCode} - ${response.body}',
+            );
+            print(
+              '❌ Failed to sync repayment ${repayment.receiptNumber}: ${response.statusCode}',
+            );
+          }
+        } catch (e) {
+          // Network error - update sync response but keep as unsynced
+          await _databaseHelper.updateRepaymentSyncStatus(
+            repayment.receiptNumber,
+            false,
+            syncResponse: 'Network Error: $e',
+          );
+          print(
+            '❌ Network error syncing repayment ${repayment.receiptNumber}: $e',
+          );
+          // Continue with other repayments even if one fails
+          continue;
+        }
+      }
+    } catch (e) {
+      print('Error in auto-sync repayments: $e');
+    }
+  }
+
+  /// Manually sync unsynced repayments
+  Future<RepaymentSyncResult> syncUnyncedRepayments() async {
+    if (!isLoggedIn || _currentUser == null) {
+      return RepaymentSyncResult(
+        success: false,
+        message: 'User not logged in',
+        syncedCount: 0,
+        failedCount: 0,
+      );
+    }
+
+    try {
+      final unsyncedRepayments = await _databaseHelper.getUnsyncedRepayments();
+
+      if (unsyncedRepayments.isEmpty) {
+        return RepaymentSyncResult(
+          success: true,
+          message: 'No repayments to sync',
+          syncedCount: 0,
+          failedCount: 0,
+        );
+      }
+
+      int syncedCount = 0;
+      int failedCount = 0;
+
+      for (final repayment in unsyncedRepayments) {
+        try {
+          late http.Response response;
+
+          if (repayment.currency == 'USD') {
+            response = await _apiService.submitUSDRepayment(repayment.toJson());
+          } else {
+            response = await _apiService.submitZWGRepayment(repayment.toJson());
+          }
+
+          if (response.statusCode >= 200 && response.statusCode < 300) {
+            await _databaseHelper.updateRepaymentSyncStatus(
+              repayment.receiptNumber,
+              true,
+              syncResponse: 'Success: ${response.statusCode}',
+            );
+            syncedCount++;
+          } else {
+            await _databaseHelper.updateRepaymentSyncStatus(
+              repayment.receiptNumber,
+              false,
+              syncResponse: 'Error: ${response.statusCode} - ${response.body}',
+            );
+            failedCount++;
+          }
+        } catch (e) {
+          await _databaseHelper.updateRepaymentSyncStatus(
+            repayment.receiptNumber,
+            false,
+            syncResponse: 'Network Error: $e',
+          );
+          failedCount++;
+        }
+      }
+
+      return RepaymentSyncResult(
+        success: syncedCount > 0,
+        message: 'Synced $syncedCount repayments, $failedCount failed',
+        syncedCount: syncedCount,
+        failedCount: failedCount,
+      );
+    } catch (e) {
+      print('Error syncing repayments: $e');
+      return RepaymentSyncResult(
+        success: false,
+        message: 'Failed to sync repayments: $e',
+        syncedCount: 0,
+        failedCount: 0,
+      );
+    }
+  }
+
+  /// Get repayments by client ID
+  Future<List<Repayment>> getClientRepayments(String clientId) async {
+    return await _databaseHelper.getRepaymentsByClientId(clientId);
+  }
+
+  /// Get all unsynced repayments
+  Future<List<Repayment>> getUnsyncedRepayments() async {
+    return await _databaseHelper.getUnsyncedRepayments();
+  }
+
+  /// Get all synced repayments
+  Future<List<Repayment>> getSyncedRepayments() async {
+    return await _databaseHelper.getSyncedRepayments();
+  }
+
+  /// Get repayments count
+  Future<int> getRepaymentsCount() async {
+    return await _databaseHelper.getRepaymentsCount();
+  }
+
+  /// Get unsynced repayments count
+  Future<int> getUnsyncedRepaymentsCount() async {
+    return await _databaseHelper.getUnsyncedRepaymentsCount();
+  }
+
+  /// Get clients with repayment summary
+  Future<List<Map<String, dynamic>>> getClientsWithRepaymentSummary() async {
+    return await _databaseHelper.getClientsWithRepaymentSummary();
+  }
+
+  /// Load and sync disbursements for a specific client
+  Future<DisbursementSyncResult> syncDisbursementsForClient(
+    String clientId,
+  ) async {
+    if (!isLoggedIn || _currentUser == null) {
+      return DisbursementSyncResult(
+        success: false,
+        message: 'User not logged in',
+        disbursementsLoaded: 0,
+      );
+    }
+
+    try {
+      print('Loading disbursements for client: $clientId');
+
+      final response = await _apiService.loadDisbursements(clientId);
+
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+
+        // Parse disbursements from the response
+        final disbursementsList = responseData as List<dynamic>;
+        final disbursements = disbursementsList
+            .map((item) => Disbursement.fromJson(item as Map<String, dynamic>))
+            .toList();
+
+        // Save disbursements to local database
+        if (disbursements.isNotEmpty) {
+          await _databaseHelper.insertMultipleDisbursements(disbursements);
+        }
+
+        print(
+          'Successfully synced ${disbursements.length} disbursements for client $clientId',
+        );
+
+        return DisbursementSyncResult(
+          success: true,
+          message: 'Successfully synced ${disbursements.length} disbursements',
+          disbursementsLoaded: disbursements.length,
+          disbursements: disbursements,
+        );
+      } else {
+        print('Failed to load disbursements. Status: ${response.statusCode}');
+        return DisbursementSyncResult(
+          success: false,
+          message: 'Failed to load disbursements from server',
+          disbursementsLoaded: 0,
+        );
+      }
+    } catch (e) {
+      print('Error syncing disbursements: $e');
+      return DisbursementSyncResult(
+        success: false,
+        message:
+            'Failed to sync disbursements. Please check your internet connection.',
+        disbursementsLoaded: 0,
+      );
+    }
+  }
+
+  /// Get all clients from local database
+  Future<List<Client>> getClients() async {
+    return await _databaseHelper.getAllClients();
+  }
+
+  /// Get disbursements for a client from local database
+  Future<List<Disbursement>> getClientDisbursements(String clientId) async {
+    return await _databaseHelper.getDisbursementsByClientId(clientId);
+  }
+
+  /// Get all disbursements from local database
+  Future<List<Disbursement>> getAllDisbursements() async {
+    return await _databaseHelper.getAllDisbursements();
+  }
+
+  /// Get disbursements count
+  Future<int> getDisbursementsCount() async {
+    return await _databaseHelper.getDisbursementsCount();
+  }
+
+  /// Get disbursements count for a specific client
+  Future<int> getClientDisbursementsCount(String clientId) async {
+    return await _databaseHelper.getDisbursementsCountByClientId(clientId);
+  }
+
+  /// Get clients with their disbursement count
+  Future<List<Map<String, dynamic>>> getClientsWithDisbursementCount() async {
+    return await _databaseHelper.getClientsWithDisbursementCount();
+  }
+
+  // Receipt Number operations
+  
+  /// Sync receipt numbers from server
+  Future<ReceiptNumberSyncResult> syncReceiptNumbers({bool forceRefresh = false}) async {
+    if (_currentUser == null) {
+      return ReceiptNumberSyncResult(
+        success: false,
+        message: 'User not logged in',
+        newReceiptNumbers: 0,
+        totalReceiptNumbers: 0,
+      );
+    }
+
+    try {
+      await _apiService.initialize();
+      
+      // Get existing receipt numbers count
+      final existingCount = await _databaseHelper.getTotalReceiptNumbersCount();
+      
+      print('🔄 Syncing receipt numbers for branch: ${_currentUser!.branch}, userId: ${_currentUser!.currentUserId}...');
+      
+      // Call API to get receipt numbers
+      final response = await _apiService.loadReceiptNumbers(_currentUser!.branch, _currentUser!.currentUserId);
+      
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final List<dynamic> jsonResponse = json.decode(response.body);
+        
+        // Parse receipt numbers from API
+        final List<ReceiptNumber> apiReceiptNumbers = jsonResponse
+            .map((json) => ReceiptNumber.fromApiJson(json))
+            .toList();
+        
+        if (forceRefresh) {
+          // Clear existing and insert all
+          await _databaseHelper.deleteAllReceiptNumbers();
+          await _databaseHelper.insertMultipleReceiptNumbers(apiReceiptNumbers);
+        } else {
+          // Find new additions only
+          final existingReceiptNumbers = await _databaseHelper.getAllReceiptNumbers();
+          final existingIds = existingReceiptNumbers.map((r) => r.id).toSet();
+          
+          final newReceiptNumbers = apiReceiptNumbers
+              .where((r) => !existingIds.contains(r.id))
+              .toList();
+          
+          if (newReceiptNumbers.isNotEmpty) {
+            await _databaseHelper.insertMultipleReceiptNumbers(newReceiptNumbers);
+          }
+        }
+        
+        final newCount = await _databaseHelper.getTotalReceiptNumbersCount();
+        final addedCount = newCount - (forceRefresh ? 0 : existingCount);
+        
+        print('✅ Receipt numbers sync successful: $addedCount new, $newCount total');
+        
+        return ReceiptNumberSyncResult(
+          success: true,
+          message: 'Receipt numbers synced successfully',
+          newReceiptNumbers: addedCount,
+          totalReceiptNumbers: newCount,
+          receiptNumbers: apiReceiptNumbers,
+        );
+      } else {
+        print('❌ Receipt numbers sync failed: ${response.statusCode} - ${response.body}');
+        return ReceiptNumberSyncResult(
+          success: false,
+          message: 'Failed to sync receipt numbers: ${response.statusCode}',
+          newReceiptNumbers: 0,
+          totalReceiptNumbers: await _databaseHelper.getTotalReceiptNumbersCount(),
+        );
+      }
+    } catch (e) {
+      print('❌ Receipt numbers sync error: $e');
+      return ReceiptNumberSyncResult(
+        success: false,
+        message: 'Receipt numbers sync failed: $e',
+        newReceiptNumbers: 0,
+        totalReceiptNumbers: await _databaseHelper.getTotalReceiptNumbersCount(),
+      );
+    }
+  }
+  
+  /// Get unused receipt numbers
+  Future<List<ReceiptNumber>> getUnusedReceiptNumbers() async {
+    return await _databaseHelper.getUnusedReceiptNumbers();
+  }
+  
+  /// Get used receipt numbers
+  Future<List<ReceiptNumber>> getUsedReceiptNumbers() async {
+    return await _databaseHelper.getUsedReceiptNumbers();
+  }
+  
+  /// Get next available receipt number and mark as used
+  Future<ReceiptNumber?> getAndUseNextReceiptNumber({
+    required String clientId,
+    required String clientName,
+    required double amount,
+    required String currency,
+  }) async {
+    final nextReceiptNumber = await _databaseHelper.getNextUnusedReceiptNumber();
+    
+    if (nextReceiptNumber != null) {
+      await _databaseHelper.markReceiptNumberAsUsed(
+        nextReceiptNumber.id,
+        clientId: clientId,
+        clientName: clientName,
+        amount: amount,
+        currency: currency,
+      );
+      
+      // Return the updated receipt number
+      return await _databaseHelper.getReceiptNumberById(nextReceiptNumber.id);
+    }
+    
+    return null;
+  }
+  
+  /// Search receipt numbers
+  Future<List<ReceiptNumber>> searchReceiptNumbers(String query) async {
+    return await _databaseHelper.searchReceiptNumbers(query);
+  }
+  
+  /// Get receipt numbers stats
+  Future<Map<String, int>> getReceiptNumbersStats() async {
+    return await _databaseHelper.getReceiptNumbersStats();
+  }
+  
+  /// Modified repayment creation to use receipt numbers
+  Future<RepaymentResult> createRepaymentWithReceiptNumber({
+    required int disbursementId,
+    required String clientId,
+    required double amount,
+    required DateTime dateOfPayment,
+    required String paymentNumber,
+    required String currency,
+    required String clientName,
+    bool force = true,
+  }) async {
+    if (_currentUser == null) {
+      return RepaymentResult(
+        success: false,
+        message: 'User not logged in',
+        receiptNumber: null,
+      );
+    }
+
+    try {
+      // Get next unused receipt number
+      final receiptNumber = await getAndUseNextReceiptNumber(
+        clientId: clientId,
+        clientName: clientName,
+        amount: amount,
+        currency: currency,
+      );
+      
+      if (receiptNumber == null) {
+        return RepaymentResult(
+          success: false,
+          message: 'No unused receipt numbers available. Please sync receipt numbers first.',
+          receiptNumber: null,
+        );
+      }
+
+      // Create repayment object with system receipt number
+      final repayment = Repayment(
+        disbursementId: disbursementId,
+        clientId: clientId,
+        amount: amount,
+        branch: _currentUser!.branch,
+        dateOfPayment: dateOfPayment,
+        paymentNumber: paymentNumber,
+        force: force,
+        receiptNumber: receiptNumber.receiptNum, // Use system receipt number
+        currency: currency,
+        clientName: clientName,
+        createdAt: DateTime.now(),
+      );
+
+      // Store locally
+      await _databaseHelper.insertRepayment(repayment);
+
+      print('✅ Repayment created with system receipt number: ${receiptNumber.receiptNum} for $currency $amount');
+
+      // Try to sync immediately
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _autoSyncRepayments();
+      });
+
+      return RepaymentResult(
+        success: true,
+        message: 'Repayment created successfully with system receipt number',
+        receiptNumber: receiptNumber.receiptNum,
+        repayment: repayment,
+      );
+    } catch (e) {
+      print('❌ Error creating repayment with receipt number: $e');
+      return RepaymentResult(
+        success: false,
+        message: 'Failed to create repayment: $e',
+        receiptNumber: null,
+      );
+    }
+  }
+
+  // Repayment Cancellation operations
+
+  /// Cancel a repayment
+  Future<CancellationResult> cancelRepayment({
+    required Repayment repayment,
+    required String reason,
+  }) async {
+    if (_currentUser == null) {
+      return CancellationResult(
+        success: false,
+        message: 'User not logged in',
+      );
+    }
+
+    try {
+      await _apiService.initialize();
+      
+      // Build cancellation payload according to API spec
+      final cancellationData = {
+        'ClientId': repayment.clientId,
+        'Amount': repayment.amount,
+        'ReceiptNumber': repayment.receiptNumber,
+        'DateOfPayment': repayment.dateOfPayment.toIso8601String(),
+        'Reason': reason.trim(),
+        'Branch': _currentUser!.branch,
+        'CancelledBy': _currentUser!.fullName,
+      };
+
+      print('🔄 Cancelling repayment: ${repayment.receiptNumber}...');
+      
+      // Call API to cancel repayment
+      final response = await _apiService.cancelRepayment(cancellationData);
+      
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final responseData = json.decode(response.body);
+        
+        print('✅ Repayment cancelled successfully: ${repayment.receiptNumber}');
+        
+        return CancellationResult(
+          success: true,
+          message: responseData['message'] ?? 'Repayment cancelled successfully',
+          cancellationId: responseData['cancellationId'],
+          smsNotification: responseData['smsNotification'],
+        );
+      } else if (response.statusCode == 409) {
+        // Already cancelled
+        final responseData = json.decode(response.body);
+        return CancellationResult(
+          success: false,
+          message: responseData['message'] ?? 'Repayment is already cancelled',
+        );
+      } else if (response.statusCode == 404) {
+        // Client not found
+        final responseData = json.decode(response.body);
+        return CancellationResult(
+          success: false,
+          message: responseData['message'] ?? 'Client not found',
+        );
+      } else {
+        // Other server errors
+        final responseData = json.decode(response.body);
+        print('❌ Failed to cancel repayment: ${response.statusCode} - ${response.body}');
+        return CancellationResult(
+          success: false,
+          message: responseData['message'] ?? 'Failed to cancel repayment: ${response.statusCode}',
+        );
+      }
+    } catch (e) {
+      print('❌ Repayment cancellation error: $e');
+      return CancellationResult(
+        success: false,
+        message: 'Cancellation failed: $e',
+      );
+    }
+  }
+
+  /// Get cancelled repayments for current user's branch
+  Future<List<CancelledRepayment>> getCancelledRepayments() async {
+    if (_currentUser == null) {
+      print('❌ User not logged in - cannot get cancelled repayments');
+      return [];
+    }
+
+    try {
+      await _apiService.initialize();
+      
+      print('🔄 Loading cancelled repayments for branch: ${_currentUser!.branch}...');
+      
+      final response = await _apiService.getCancelledRepayments(_currentUser!.branch);
+      
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final responseData = json.decode(response.body);
+        final List<dynamic> cancelledList = responseData['cancelledRepayments'] ?? [];
+        
+        final cancelledRepayments = cancelledList
+            .map((json) => CancelledRepayment.fromJson(json))
+            .toList();
+        
+        print('✅ Loaded ${cancelledRepayments.length} cancelled repayments');
+        return cancelledRepayments;
+      } else {
+        print('❌ Failed to load cancelled repayments: ${response.statusCode}');
+        return [];
+      }
+    } catch (e) {
+      print('❌ Error loading cancelled repayments: $e');
+      return [];
+    }
+  }
+
+  // Penalty Fee operations
+  Future<PenaltyFeeResult> createPenaltyFee({
+    required String clientName,
+    required double amount,
+  }) async {
+    if (_currentUser == null) {
+      return PenaltyFeeResult(
+        success: false,
+        message: 'User not logged in',
+        receiptNumber: '',
+      );
+    }
+
+    try {
+      final db = _databaseHelper;
+      
+      // Generate unique receipt number
+      final now = DateTime.now();
+      final receiptNumber = 'PEN${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}${now.millisecond.toString().padLeft(3, '0')}';
+      
+      // Create penalty fee record
+      final penaltyFee = PenaltyFee(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        branch: _currentUser!.branch,
+        amount: amount,
+        clientName: clientName,
+        dateTimeCaptured: now,
+        receiptNumber: receiptNumber,
+        isSynced: false,
+      );
+      
+      // Save to local database
+      await db.insertPenaltyFee(penaltyFee);
+      
+      // Try to sync immediately if online
+      await _autoSyncPenaltyFees();
+      
+      print('✅ Penalty fee created: $receiptNumber');
+      return PenaltyFeeResult(
+        success: true,
+        message: 'Penalty fee recorded successfully',
+        receiptNumber: receiptNumber,
+        penaltyFee: penaltyFee,
+      );
+      
+    } catch (e) {
+      print('❌ Error creating penalty fee: $e');
+      return PenaltyFeeResult(
+        success: false,
+        message: 'Failed to create penalty fee: $e',
+        receiptNumber: '',
+      );
+    }
+  }
+
+  /// Auto-sync penalty fees when internet is available
+  Future<void> _autoSyncPenaltyFees() async {
+    if (!isLoggedIn) return;
+    
+    try {
+      final unsyncedPenaltyFees = await _databaseHelper.getUnsyncedPenaltyFees();
+      if (unsyncedPenaltyFees.isEmpty) return;
+
+      await _apiService.initialize();
+      
+      for (final penaltyFee in unsyncedPenaltyFees) {
+        try {
+          print('🔄 Auto-syncing penalty fee: ${penaltyFee.receiptNumber}...');
+          
+          // Step 1: Sync to primary penalty fee endpoint
+          final response = await _apiService.addPenaltyFee(penaltyFee.toApiJson());
+          
+          if (response.statusCode >= 200 && response.statusCode < 300) {
+            print('✅ Primary penalty fee auto-sync successful: ${penaltyFee.receiptNumber}');
+            
+            try {
+              // Step 2: Get unused receipt number
+              final unusedReceipt = await _databaseHelper.getNextUnusedReceiptNumber();
+              
+              if (unusedReceipt != null) {
+                print('🎫 Auto-sync using receipt number: ${unusedReceipt.receiptNum}');
+                
+                // Step 3: Sync to final penalty fee endpoint with receipt number
+                final finalPenaltyData = {
+                  'Branch': penaltyFee.branch,
+                  'Amount': penaltyFee.amount,
+                  'ClientId': 'PEN${penaltyFee.clientName.replaceAll(' ', '').toUpperCase()}',
+                  'ClientName': penaltyFee.clientName,
+                  'DateTimeCaptured': penaltyFee.dateTimeCaptured.toIso8601String(),
+                  'ReceiptNumber': unusedReceipt.receiptNumber,
+                };
+                
+                final finalResponse = await _apiService.addFinalPenaltyFee(finalPenaltyData);
+                
+                if (finalResponse.statusCode >= 200 && finalResponse.statusCode < 300) {
+                  // Step 4: Mark receipt as used and penalty fee as synced
+                  await _databaseHelper.markReceiptNumberAsUsed(unusedReceipt.id, DateTime.now());
+                  await _databaseHelper.markPenaltyFeeAsSynced(penaltyFee.id);
+                  
+                  print('✅ Auto-synced penalty fee with receipt: ${penaltyFee.receiptNumber} → ${unusedReceipt.receiptNum}');
+                } else {
+                  print('❌ Failed to auto-sync final penalty fee ${penaltyFee.receiptNumber}: ${finalResponse.statusCode}');
+                }
+              } else {
+                print('❌ No unused receipt numbers available for auto-sync: ${penaltyFee.receiptNumber}');
+              }
+            } catch (finalError) {
+              print('❌ Error in final penalty fee auto-sync ${penaltyFee.receiptNumber}: $finalError');
+            }
+          }
+        } catch (e) {
+          print('❌ Failed to auto-sync penalty fee ${penaltyFee.receiptNumber}: $e');
+          // Continue with next penalty fee
+        }
+      }
+    } catch (e) {
+      print('❌ Auto-sync penalty fees error: $e');
+    }
+  }
+
+  Future<PenaltySyncResult> syncUnsyncedPenaltyFees() async {
+    if (!isLoggedIn) {
+      return PenaltySyncResult(
+        success: false,
+        message: 'User not logged in',
+        syncedCount: 0,
+        failedCount: 0,
+      );
+    }
+
+    try {
+      final unsyncedPenaltyFees = await _databaseHelper.getUnsyncedPenaltyFees();
+      
+      if (unsyncedPenaltyFees.isEmpty) {
+        return PenaltySyncResult(
+          success: true,
+          message: 'No penalty fees to sync',
+          syncedCount: 0,
+          failedCount: 0,
+        );
+      }
+
+      await _apiService.initialize();
+      
+      int syncedCount = 0;
+      int failedCount = 0;
+
+      for (final penaltyFee in unsyncedPenaltyFees) {
+        try {
+          print('🔄 Syncing penalty fee: ${penaltyFee.receiptNumber}...');
+          
+          // Step 1: Sync to primary penalty fee endpoint
+          final response = await _apiService.addPenaltyFee(penaltyFee.toApiJson());
+          
+          if (response.statusCode >= 200 && response.statusCode < 300) {
+            print('✅ Primary penalty fee sync successful: ${penaltyFee.receiptNumber}');
+            
+            try {
+              // Step 2: Get unused receipt number
+              final unusedReceipt = await _databaseHelper.getNextUnusedReceiptNumber();
+              
+              if (unusedReceipt != null) {
+                print('🎫 Using receipt number: ${unusedReceipt.receiptNum}');
+                
+                // Step 3: Sync to final penalty fee endpoint with receipt number
+                final finalPenaltyData = {
+                  'Branch': penaltyFee.branch,
+                  'Amount': penaltyFee.amount,
+                  'ClientId': 'PEN${penaltyFee.clientName.replaceAll(' ', '').toUpperCase()}',
+                  'ClientName': penaltyFee.clientName,
+                  'DateTimeCaptured': penaltyFee.dateTimeCaptured.toIso8601String(),
+                  'ReceiptNumber': unusedReceipt.receiptNumber,
+                };
+                
+                final finalResponse = await _apiService.addFinalPenaltyFee(finalPenaltyData);
+                
+                if (finalResponse.statusCode >= 200 && finalResponse.statusCode < 300) {
+                  // Step 4: Mark receipt as used and penalty fee as synced
+                  await _databaseHelper.markReceiptNumberAsUsed(unusedReceipt.id, DateTime.now());
+                  await _databaseHelper.markPenaltyFeeAsSynced(penaltyFee.id);
+                  
+                  syncedCount++;
+                  print('✅ Fully synced penalty fee with receipt: ${penaltyFee.receiptNumber} → ${unusedReceipt.receiptNum}');
+                } else {
+                  failedCount++;
+                  print('❌ Failed to sync final penalty fee ${penaltyFee.receiptNumber}: ${finalResponse.statusCode}');
+                }
+              } else {
+                failedCount++;
+                print('❌ No unused receipt numbers available for penalty fee: ${penaltyFee.receiptNumber}');
+              }
+            } catch (finalError) {
+              failedCount++;
+              print('❌ Error in final penalty fee sync ${penaltyFee.receiptNumber}: $finalError');
+            }
+          } else {
+            failedCount++;
+            print('❌ Failed to sync primary penalty fee ${penaltyFee.receiptNumber}: ${response.statusCode}');
+          }
+        } catch (e) {
+          failedCount++;
+          print('❌ Error syncing penalty fee ${penaltyFee.receiptNumber}: $e');
+        }
+      }
+
+      final success = failedCount == 0;
+      final message = success 
+          ? 'Successfully synced $syncedCount penalty fees'
+          : 'Synced $syncedCount penalty fees, $failedCount failed';
+
+      return PenaltySyncResult(
+        success: success,
+        message: message,
+        syncedCount: syncedCount,
+        failedCount: failedCount,
+      );
+
+    } catch (e) {
+      print('❌ Sync penalty fees error: $e');
+      return PenaltySyncResult(
+        success: false,
+        message: 'Sync failed: $e',
+        syncedCount: 0,
+        failedCount: 0,
+      );
+    }
+  }
+
+  Future<List<PenaltyFee>> getUnsyncedPenaltyFees() async {
+    return await _databaseHelper.getUnsyncedPenaltyFees();
+  }
+
+  Future<List<PenaltyFee>> getSyncedPenaltyFees() async {
+    return await _databaseHelper.getSyncedPenaltyFees();
+  }
+
+  Future<List<PenaltyFee>> getAllPenaltyFees() async {
+    return await _databaseHelper.getAllPenaltyFees();
+  }
+
+  Future<int> getPenaltyFeesCount() async {
+    return await _databaseHelper.getPenaltyFeesCount();
+  }
+
+  Future<int> getUnsyncedPenaltyFeesCount() async {
+    return await _databaseHelper.getUnsyncedPenaltyFeesCount();
+  }
+
+  Future<CancellationResult> cancelPenaltyFee({
+    required PenaltyFee penaltyFee,
+    required String reason,
+  }) async {
+    if (_currentUser == null) {
+      return CancellationResult(
+        success: false,
+        message: 'User not logged in',
+      );
+    }
+
+    try {
+      await _apiService.initialize();
+      
+      print('🔄 Cancelling penalty fee: ${penaltyFee.receiptNumber}...');
+      
+      final cancellationData = {
+        'Branch': _currentUser!.branch,
+        'ReceiptNumber': penaltyFee.receiptNumber,
+        'ClientName': penaltyFee.clientName,
+        'Amount': penaltyFee.amount,
+        'DateOfPayment': penaltyFee.dateTimeCaptured.toIso8601String(),
+        'CancelledBy': _currentUser!.fullName,
+        'Reason': reason,
+      };
+      
+      final response = await _apiService.cancelPenaltyReceipt(cancellationData);
+      
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final responseData = json.decode(response.body);
+        
+        // Store cancelled penalty fee locally
+        final cancelledPenaltyFee = CancelledPenaltyFee.fromJson(responseData);
+        await _databaseHelper.insertCancelledPenaltyFee(cancelledPenaltyFee);
+        
+        // Remove original penalty fee
+        await _databaseHelper.deletePenaltyFee(penaltyFee.id);
+        
+        print('✅ Penalty fee cancelled successfully: ${penaltyFee.receiptNumber}');
+        return CancellationResult(
+          success: true,
+          message: responseData['message'] ?? 'Penalty fee cancelled successfully',
+        );
+      } else {
+        print('❌ Failed to cancel penalty fee: ${response.statusCode}');
+        return CancellationResult(
+          success: false,
+          message: 'Failed to cancel penalty fee',
+        );
+      }
+      
+    } catch (e) {
+      print('❌ Error cancelling penalty fee: $e');
+      return CancellationResult(
+        success: false,
+        message: 'Error cancelling penalty fee: $e',
+      );
+    }
+  }
+
+  Future<List<CancelledPenaltyFee>> getCancelledPenaltyFees() async {
+    if (!isLoggedIn) return [];
+    
+    try {
+      await _apiService.initialize();
+      
+      print('🔄 Loading cancelled penalty fees for branch: ${_currentUser!.branch}...');
+      
+      final response = await _apiService.getCancelledPenaltyReceipts(_currentUser!.branch);
+      
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final responseData = json.decode(response.body);
+        final List<dynamic> cancelledList = responseData['cancelledPenaltyReceipts'] ?? [];
+        
+        final cancelledPenaltyFees = cancelledList
+            .map((json) => CancelledPenaltyFee.fromJson(json))
+            .toList();
+        
+        print('✅ Loaded ${cancelledPenaltyFees.length} cancelled penalty fees');
+        return cancelledPenaltyFees;
+      } else {
+        print('❌ Failed to load cancelled penalty fees: ${response.statusCode}');
+        return [];
+      }
+    } catch (e) {
+      print('❌ Error loading cancelled penalty fees: $e');
+      return [];
+    }
+  }
+}
+
+/// Result object for login operations
+class LoginResult {
+  final bool success;
+  final String message;
+  final User? user;
+
+  LoginResult({required this.success, required this.message, this.user});
+
+  @override
+  String toString() {
+    return 'LoginResult{success: $success, message: $message, user: ${user?.fullName}}';
+  }
+}
+
+/// Result object for client sync operations
+class ClientSyncResult {
+  final bool success;
+  final String message;
+  final int clientsLoaded;
+  final List<Client>? clients;
+
+  ClientSyncResult({
+    required this.success,
+    required this.message,
+    required this.clientsLoaded,
+    this.clients,
+  });
+
+  @override
+  String toString() {
+    return 'ClientSyncResult{success: $success, message: $message, clientsLoaded: $clientsLoaded}';
+  }
+}
+
+/// Result object for disbursement sync operations
+class DisbursementSyncResult {
+  final bool success;
+  final String message;
+  final int disbursementsLoaded;
+  final List<Disbursement>? disbursements;
+
+  DisbursementSyncResult({
+    required this.success,
+    required this.message,
+    required this.disbursementsLoaded,
+    this.disbursements,
+  });
+
+  @override
+  String toString() {
+    return 'DisbursementSyncResult{success: $success, message: $message, disbursementsLoaded: $disbursementsLoaded}';
+  }
+}
+
+/// Result object for repayment operations
+class RepaymentResult {
+  final bool success;
+  final String message;
+  final String? receiptNumber;
+  final Repayment? repayment;
+
+  RepaymentResult({
+    required this.success,
+    required this.message,
+    required this.receiptNumber,
+    this.repayment,
+  });
+
+  @override
+  String toString() {
+    return 'RepaymentResult{success: $success, message: $message, receiptNumber: $receiptNumber}';
+  }
+}
+
+/// Result object for repayment sync operations
+class RepaymentSyncResult {
+  final bool success;
+  final String message;
+  final int syncedCount;
+  final int failedCount;
+
+  RepaymentSyncResult({
+    required this.success,
+    required this.message,
+    required this.syncedCount,
+    required this.failedCount,
+  });
+
+  @override
+  String toString() {
+    return 'RepaymentSyncResult{success: $success, message: $message, syncedCount: $syncedCount, failedCount: $failedCount}';
+  }
+}
+
+/// Result object for penalty fee operations
+class PenaltyFeeResult {
+  final bool success;
+  final String message;
+  final String receiptNumber;
+  final PenaltyFee? penaltyFee;
+
+  PenaltyFeeResult({
+    required this.success,
+    required this.message,
+    required this.receiptNumber,
+    this.penaltyFee,
+  });
+
+  @override
+  String toString() {
+    return 'PenaltyFeeResult{success: $success, message: $message, receiptNumber: $receiptNumber}';
+  }
+}
+
+/// Result object for penalty fee sync operations
+class PenaltySyncResult {
+  final bool success;
+  final String message;
+  final int syncedCount;
+  final int failedCount;
+
+  PenaltySyncResult({
+    required this.success,
+    required this.message,
+    required this.syncedCount,
+    required this.failedCount,
+  });
+
+  @override
+  String toString() {
+    return 'PenaltySyncResult{success: $success, message: $message, syncedCount: $syncedCount, failedCount: $failedCount}';
+  }
+}
