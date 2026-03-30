@@ -10,10 +10,14 @@ import '../models/cancelled_penalty_fee.dart';
 import '../models/branch.dart';
 import '../models/transfer.dart';
 import '../models/expense.dart';
+import '../models/petty_cash.dart';
+import '../models/cash_count.dart';
+import '../models/request_balance.dart';
+import '../models/cashbook_download.dart';
 
 class DatabaseHelper {
   static const String _databaseName = "PetefinDb.db";
-  static const int _databaseVersion = 8;
+  static const int _databaseVersion = 12; // Updated for single date cashbook downloads
 
   // Table names
   static const String _userTable = 'users';
@@ -26,6 +30,10 @@ class DatabaseHelper {
   static const String _allBranchesTable = 'all_branches';
   static const String _transfersTable = 'transfers';
   static const String _expensesTable = 'expenses';
+  static const String _pettyCashTable = 'petty_cash';
+  static const String _cashCountTable = 'cash_count';
+  static const String _cashbookDownloadsTable = 'cashbook_downloads';
+  static const String _requestBalanceTable = 'request_balance';
 
   // Singleton pattern
   static DatabaseHelper? _instance;
@@ -47,7 +55,7 @@ class DatabaseHelper {
     String path = join(await getDatabasesPath(), _databaseName);
     return await openDatabase(
       path,
-      version: _databaseVersion,
+      version: 13, // Updated for request balance
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -315,6 +323,65 @@ class DatabaseHelper {
     await db.execute('CREATE INDEX idx_expenses_synced ON $_expensesTable(isSynced)');
     await db.execute('CREATE INDEX idx_expenses_expense_date ON $_expensesTable(expenseDate)');
     await db.execute('CREATE INDEX idx_expenses_created_at ON $_expensesTable(createdAt)');
+
+    // Create petty cash table
+    await db.execute('''
+      CREATE TABLE $_pettyCashTable (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        branchName TEXT NOT NULL,
+        amount REAL NOT NULL,
+        dateApplicable TEXT NOT NULL,
+        isSynced INTEGER NOT NULL DEFAULT 0,
+        syncedAt TEXT,
+        createdAt TEXT NOT NULL
+      )
+    ''');
+
+    // Create indexes for petty cash
+    await db.execute('CREATE INDEX idx_petty_cash_branch_name ON $_pettyCashTable(branchName)');
+    await db.execute('CREATE INDEX idx_petty_cash_synced ON $_pettyCashTable(isSynced)');
+    await db.execute('CREATE INDEX idx_petty_cash_date_applicable ON $_pettyCashTable(dateApplicable)');
+    await db.execute('CREATE INDEX idx_petty_cash_created_at ON $_pettyCashTable(createdAt)');
+
+    // Create cash count table
+    await db.execute('''
+      CREATE TABLE $_cashCountTable (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        branchName TEXT NOT NULL,
+        capturedBy TEXT NOT NULL,
+        amount REAL NOT NULL,
+        cashbookDate TEXT NOT NULL,
+        isSynced INTEGER NOT NULL DEFAULT 0,
+        syncedAt TEXT,
+        createdAt TEXT NOT NULL
+      )
+    ''');
+
+    // Create indexes for cash count
+    await db.execute('CREATE INDEX idx_cash_count_branch_name ON $_cashCountTable(branchName)');
+    await db.execute('CREATE INDEX idx_cash_count_synced ON $_cashCountTable(isSynced)');
+    await db.execute('CREATE INDEX idx_cash_count_date ON $_cashCountTable(cashbookDate)');
+    await db.execute('CREATE INDEX idx_cash_count_created_at ON $_cashCountTable(createdAt)');
+
+    // Create cashbook downloads table
+    await db.execute('''
+      CREATE TABLE $_cashbookDownloadsTable (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        branchName TEXT NOT NULL,
+        cashbookDate TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        requestedAt TEXT NOT NULL,
+        completedAt TEXT,
+        filePath TEXT,
+        errorMessage TEXT
+      )
+    ''');
+
+    // Create indexes for cashbook downloads
+    await db.execute('CREATE INDEX idx_cashbook_downloads_branch ON $_cashbookDownloadsTable(branchName)');
+    await db.execute('CREATE INDEX idx_cashbook_downloads_status ON $_cashbookDownloadsTable(status)');
+    await db.execute('CREATE INDEX idx_cashbook_downloads_date ON $_cashbookDownloadsTable(cashbookDate)');
+    await db.execute('CREATE INDEX idx_cashbook_downloads_requested_at ON $_cashbookDownloadsTable(requestedAt)');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -542,6 +609,118 @@ class DatabaseHelper {
       await db.execute('CREATE INDEX idx_expenses_synced ON $_expensesTable(isSynced)');
       await db.execute('CREATE INDEX idx_expenses_expense_date ON $_expensesTable(expenseDate)');
       await db.execute('CREATE INDEX idx_expenses_created_at ON $_expensesTable(createdAt)');
+    }
+
+    if (oldVersion < 9) {
+      // Add petty cash table in version 9
+      await db.execute('''
+        CREATE TABLE $_pettyCashTable (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          branchName TEXT NOT NULL,
+          amount REAL NOT NULL,
+          dateApplicable TEXT NOT NULL,
+          isSynced INTEGER NOT NULL DEFAULT 0,
+          syncedAt TEXT,
+          createdAt TEXT NOT NULL
+        )
+      ''');
+
+      // Create indexes for petty cash
+      await db.execute('CREATE INDEX idx_petty_cash_branch_name ON $_pettyCashTable(branchName)');
+      await db.execute('CREATE INDEX idx_petty_cash_synced ON $_pettyCashTable(isSynced)');
+      await db.execute('CREATE INDEX idx_petty_cash_date_applicable ON $_pettyCashTable(dateApplicable)');
+      await db.execute('CREATE INDEX idx_petty_cash_created_at ON $_pettyCashTable(createdAt)');
+    }
+
+    if (oldVersion < 10) {
+      // Add cash count table in version 10
+      await db.execute('''
+        CREATE TABLE $_cashCountTable (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          branchName TEXT NOT NULL,
+          capturedBy TEXT NOT NULL,
+          amount REAL NOT NULL,
+          cashbookDate TEXT NOT NULL,
+          isSynced INTEGER NOT NULL DEFAULT 0,
+          syncedAt TEXT,
+          createdAt TEXT NOT NULL
+        )
+      ''');
+
+      // Create indexes for cash count
+      await db.execute('CREATE INDEX idx_cash_count_branch_name ON $_cashCountTable(branchName)');
+      await db.execute('CREATE INDEX idx_cash_count_synced ON $_cashCountTable(isSynced)');
+      await db.execute('CREATE INDEX idx_cash_count_date ON $_cashCountTable(cashbookDate)');
+      await db.execute('CREATE INDEX idx_cash_count_created_at ON $_cashCountTable(createdAt)');
+    }
+
+    if (oldVersion < 11) {
+      // Add cashbook downloads table in version 11
+      await db.execute('''
+        CREATE TABLE $_cashbookDownloadsTable (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          branchName TEXT NOT NULL,
+          cashbookDate TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          requestedAt TEXT NOT NULL,
+          completedAt TEXT,
+          filePath TEXT,
+          errorMessage TEXT
+        )
+      ''');
+
+      // Create indexes for cashbook downloads
+      await db.execute('CREATE INDEX idx_cashbook_downloads_branch ON $_cashbookDownloadsTable(branchName)');
+      await db.execute('CREATE INDEX idx_cashbook_downloads_status ON $_cashbookDownloadsTable(status)');
+      await db.execute('CREATE INDEX idx_cashbook_downloads_date ON $_cashbookDownloadsTable(cashbookDate)');
+      await db.execute('CREATE INDEX idx_cashbook_downloads_requested_at ON $_cashbookDownloadsTable(requestedAt)');
+    }
+
+    if (oldVersion < 12) {
+      // Update cashbook downloads table schema in version 12
+      // Drop and recreate table with correct single date schema
+      await db.execute('DROP TABLE IF EXISTS $_cashbookDownloadsTable');
+      await db.execute('''
+        CREATE TABLE $_cashbookDownloadsTable (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          branchName TEXT NOT NULL,
+          cashbookDate TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          requestedAt TEXT NOT NULL,
+          completedAt TEXT,
+          filePath TEXT,
+          errorMessage TEXT
+        )
+      ''');
+
+      // Recreate indexes
+      await db.execute('CREATE INDEX idx_cashbook_downloads_branch ON $_cashbookDownloadsTable(branchName)');
+      await db.execute('CREATE INDEX idx_cashbook_downloads_status ON $_cashbookDownloadsTable(status)');
+      await db.execute('CREATE INDEX idx_cashbook_downloads_date ON $_cashbookDownloadsTable(cashbookDate)');
+      await db.execute('CREATE INDEX idx_cashbook_downloads_requested_at ON $_cashbookDownloadsTable(requestedAt)');
+    }
+
+    if (oldVersion < 13) {
+      // Add request balance table in version 13
+      await db.execute('''
+        CREATE TABLE $_requestBalanceTable (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          branchName TEXT NOT NULL,
+          cashbookDate TEXT NOT NULL,
+          amount REAL NOT NULL,
+          reason TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          requestedAt TEXT NOT NULL,
+          syncedAt TEXT,
+          errorMessage TEXT
+        )
+      ''');
+
+      // Create indexes for request balance
+      await db.execute('CREATE INDEX idx_request_balance_branch ON $_requestBalanceTable(branchName)');
+      await db.execute('CREATE INDEX idx_request_balance_status ON $_requestBalanceTable(status)');
+      await db.execute('CREATE INDEX idx_request_balance_date ON $_requestBalanceTable(cashbookDate)');
+      await db.execute('CREATE INDEX idx_request_balance_requested_at ON $_requestBalanceTable(requestedAt)');
     }
   }
 
@@ -2148,5 +2327,597 @@ class DatabaseHelper {
     
     final results = await db.rawQuery(query, args);
     return results.map((map) => Expense.fromMap(map)).toList();
+  }
+
+  // ===== PETTY CASH OPERATIONS =====
+
+  /// Insert a new petty cash entry
+  Future<int> insertPettyCash(PettyCash pettyCash) async {
+    final db = await database;
+    
+    final pettyCashMap = pettyCash.toMap();
+    // Remove id for insertion
+    pettyCashMap.remove('id');
+    
+    return await db.insert(
+      _pettyCashTable,
+      pettyCashMap,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Get all petty cash entries (queued and synced)
+  Future<List<PettyCash>> getAllPettyCash() async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _pettyCashTable,
+      orderBy: 'createdAt DESC',
+    );
+    
+    return results.map((map) => PettyCash.fromMap(map)).toList();
+  }
+
+  /// Get queued petty cash entries (not synced)
+  Future<List<PettyCash>> getQueuedPettyCash() async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _pettyCashTable,
+      where: 'isSynced = ?',
+      whereArgs: [0],
+      orderBy: 'createdAt DESC',
+    );
+    
+    return results.map((map) => PettyCash.fromMap(map)).toList();
+  }
+
+  /// Get synced petty cash entries (not expired)
+  Future<List<PettyCash>> getSyncedPettyCash() async {
+    final db = await database;
+    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
+    
+    final List<Map<String, dynamic>> results = await db.query(
+      _pettyCashTable,
+      where: 'isSynced = ? AND syncedAt > ?',
+      whereArgs: [1, sevenDaysAgo],
+      orderBy: 'syncedAt DESC',
+    );
+    
+    return results.map((map) => PettyCash.fromMap(map)).toList();
+  }
+
+  /// Get petty cash entries by branch
+  Future<List<PettyCash>> getPettyCashByBranch(String branchName) async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _pettyCashTable,
+      where: 'branchName = ?',
+      whereArgs: [branchName],
+      orderBy: 'createdAt DESC',
+    );
+    
+    return results.map((map) => PettyCash.fromMap(map)).toList();
+  }
+
+  /// Get petty cash entry by ID
+  Future<PettyCash?> getPettyCashById(int id) async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _pettyCashTable,
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    
+    if (results.isNotEmpty) {
+      return PettyCash.fromMap(results.first);
+    }
+    return null;
+  }
+
+  /// Check for potential duplicate petty cash entries
+  Future<List<PettyCash>> findSimilarPettyCash(PettyCash pettyCash) async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _pettyCashTable,
+      where: 'branchName = ? AND amount = ? AND dateApplicable = ?',
+      whereArgs: [
+        pettyCash.branchName,
+        pettyCash.amount,
+        pettyCash.dateApplicable.toIso8601String().substring(0, 10), // Compare date only
+      ],
+    );
+    
+    return results.map((map) => PettyCash.fromMap(map)).toList();
+  }
+
+  /// Update petty cash sync status
+  Future<int> updatePettyCashSyncStatus(int pettyCashId, bool isSynced) async {
+    final db = await database;
+    
+    final updateData = <String, dynamic>{
+      'isSynced': isSynced ? 1 : 0,
+    };
+    
+    if (isSynced) {
+      updateData['syncedAt'] = DateTime.now().toIso8601String();
+    }
+    
+    return await db.update(
+      _pettyCashTable,
+      updateData,
+      where: 'id = ?',
+      whereArgs: [pettyCashId],
+    );
+  }
+
+  /// Delete a petty cash entry (only if not synced)
+  Future<int> deletePettyCash(int pettyCashId) async {
+    final db = await database;
+    return await db.delete(
+      _pettyCashTable,
+      where: 'id = ? AND isSynced = ?',
+      whereArgs: [pettyCashId, 0], // Only delete if not synced
+    );
+  }
+
+  /// Delete expired synced petty cash entries (older than 7 days)
+  Future<int> deleteExpiredSyncedPettyCash() async {
+    final db = await database;
+    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
+    
+    return await db.delete(
+      _pettyCashTable,
+      where: 'isSynced = ? AND syncedAt < ?',
+      whereArgs: [1, sevenDaysAgo],
+    );
+  }
+
+  /// Clean up old petty cash data (call this periodically)
+  Future<void> cleanupPettyCashData() async {
+    await deleteExpiredSyncedPettyCash();
+    print('Petty cash data cleanup completed');
+  }
+
+  /// Get petty cash entries for date range
+  Future<List<PettyCash>> getPettyCashForDateRange(DateTime startDate, DateTime endDate, {String? branchName}) async {
+    final db = await database;
+    
+    String query = 'SELECT * FROM $_pettyCashTable WHERE dateApplicable >= ? AND dateApplicable <= ?';
+    List<dynamic> args = [startDate.toIso8601String(), endDate.toIso8601String()];
+    
+    if (branchName != null) {
+      query += ' AND branchName = ?';
+      args.add(branchName);
+    }
+    
+    query += ' ORDER BY dateApplicable DESC';
+    
+    final results = await db.rawQuery(query, args);
+    return results.map((map) => PettyCash.fromMap(map)).toList();
+  }
+
+  /// Get count of queued petty cash entries
+  Future<int> getQueuedPettyCashCount() async {
+    final db = await database;
+    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_pettyCashTable WHERE isSynced = 0');
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  /// Get count of synced petty cash entries (not expired)
+  Future<int> getSyncedPettyCashCount() async {
+    final db = await database;
+    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
+    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_pettyCashTable WHERE isSynced = 1 AND syncedAt > ?', [sevenDaysAgo]);
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  // ===== CASH COUNT OPERATIONS =====
+
+  /// Insert a new cash count entry
+  Future<int> insertCashCount(CashCount cashCount) async {
+    final db = await database;
+    
+    final cashCountMap = cashCount.toMap();
+    // Remove id for insertion
+    cashCountMap.remove('id');
+    
+    return await db.insert(
+      _cashCountTable,
+      cashCountMap,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Get all cash count entries (queued and synced)
+  Future<List<CashCount>> getAllCashCounts() async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _cashCountTable,
+      orderBy: 'createdAt DESC',
+    );
+    
+    return results.map((map) => CashCount.fromMap(map)).toList();
+  }
+
+  /// Get queued cash count entries (not synced)
+  Future<List<CashCount>> getQueuedCashCounts() async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _cashCountTable,
+      where: 'isSynced = ?',
+      whereArgs: [0],
+      orderBy: 'createdAt DESC',
+    );
+    
+    return results.map((map) => CashCount.fromMap(map)).toList();
+  }
+
+  /// Get synced cash count entries (not expired)
+  Future<List<CashCount>> getSyncedCashCounts() async {
+    final db = await database;
+    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
+    
+    final List<Map<String, dynamic>> results = await db.query(
+      _cashCountTable,
+      where: 'isSynced = ? AND syncedAt > ?',
+      whereArgs: [1, sevenDaysAgo],
+      orderBy: 'syncedAt DESC',
+    );
+    
+    return results.map((map) => CashCount.fromMap(map)).toList();
+  }
+
+  /// Get cash count entries by branch
+  Future<List<CashCount>> getCashCountsByBranch(String branchName) async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _cashCountTable,
+      where: 'branchName = ?',
+      whereArgs: [branchName],
+      orderBy: 'createdAt DESC',
+    );
+    
+    return results.map((map) => CashCount.fromMap(map)).toList();
+  }
+
+  /// Get cash count entry by ID
+  Future<CashCount?> getCashCountById(int id) async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _cashCountTable,
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    
+    if (results.isNotEmpty) {
+      return CashCount.fromMap(results.first);
+    }
+    return null;
+  }
+
+  /// Check for potential duplicate cash count entries
+  Future<List<CashCount>> findSimilarCashCounts(CashCount cashCount) async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _cashCountTable,
+      where: 'branchName = ? AND cashbookDate = ?',
+      whereArgs: [
+        cashCount.branchName,
+        cashCount.cashbookDate.toIso8601String().substring(0, 10), // Compare date only
+      ],
+    );
+    
+    return results.map((map) => CashCount.fromMap(map)).toList();
+  }
+
+  /// Update cash count sync status
+  Future<int> updateCashCountSyncStatus(int cashCountId, bool isSynced) async {
+    final db = await database;
+    
+    final updateData = <String, dynamic>{
+      'isSynced': isSynced ? 1 : 0,
+    };
+    
+    if (isSynced) {
+      updateData['syncedAt'] = DateTime.now().toIso8601String();
+    }
+    
+    return await db.update(
+      _cashCountTable,
+      updateData,
+      where: 'id = ?',
+      whereArgs: [cashCountId],
+    );
+  }
+
+  /// Delete a cash count entry (only if not synced)
+  Future<int> deleteCashCount(int cashCountId) async {
+    final db = await database;
+    return await db.delete(
+      _cashCountTable,
+      where: 'id = ? AND isSynced = ?',
+      whereArgs: [cashCountId, 0], // Only delete if not synced
+    );
+  }
+
+  /// Delete expired synced cash count entries (older than 7 days)
+  Future<int> deleteExpiredSyncedCashCounts() async {
+    final db = await database;
+    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
+    
+    return await db.delete(
+      _cashCountTable,
+      where: 'isSynced = ? AND syncedAt < ?',
+      whereArgs: [1, sevenDaysAgo],
+    );
+  }
+
+  /// Clean up old cash count data (call this periodically)
+  Future<void> cleanupCashCountData() async {
+    await deleteExpiredSyncedCashCounts();
+    print('Cash count data cleanup completed');
+  }
+
+  /// Get cash count entries for date range
+  Future<List<CashCount>> getCashCountsForDateRange(DateTime startDate, DateTime endDate, {String? branchName}) async {
+    final db = await database;
+    
+    String query = 'SELECT * FROM $_cashCountTable WHERE cashbookDate >= ? AND cashbookDate <= ?';
+    List<dynamic> args = [startDate.toIso8601String(), endDate.toIso8601String()];
+    
+    if (branchName != null) {
+      query += ' AND branchName = ?';
+      args.add(branchName);
+    }
+    
+    query += ' ORDER BY cashbookDate DESC';
+    
+    final results = await db.rawQuery(query, args);
+    return results.map((map) => CashCount.fromMap(map)).toList();
+  }
+
+  /// Get count of queued cash count entries
+  Future<int> getQueuedCashCountsCount() async {
+    final db = await database;
+    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_cashCountTable WHERE isSynced = 0');
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  /// Get count of synced cash count entries (not expired)
+  Future<int> getSyncedCashCountsCount() async {
+    final db = await database;
+    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
+    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_cashCountTable WHERE isSynced = 1 AND syncedAt > ?', [sevenDaysAgo]);
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  // ===== CASHBOOK DOWNLOADS OPERATIONS =====
+
+  /// Insert a new cashbook download
+  Future<int> insertCashbookDownload(CashbookDownload download) async {
+    final db = await database;
+    
+    final downloadMap = download.toMap();
+    // Remove id for insertion
+    downloadMap.remove('id');
+    
+    return await db.insert(
+      _cashbookDownloadsTable,
+      downloadMap,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Get all cashbook downloads ordered by requested date
+  Future<List<CashbookDownload>> getAllCashbookDownloads() async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _cashbookDownloadsTable,
+      orderBy: 'requestedAt DESC',
+    );
+    
+    return results.map((map) => CashbookDownload.fromMap(map)).toList();
+  }
+
+  /// Get recent cashbook downloads (limit 5)
+  Future<List<CashbookDownload>> getRecentCashbookDownloads({int limit = 5}) async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _cashbookDownloadsTable,
+      orderBy: 'requestedAt DESC',
+      limit: limit,
+    );
+    
+    return results.map((map) => CashbookDownload.fromMap(map)).toList();
+  }
+
+  /// Get cashbook downloads by status
+  Future<List<CashbookDownload>> getCashbookDownloadsByStatus(DownloadStatus status) async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _cashbookDownloadsTable,
+      where: 'status = ?',
+      whereArgs: [status.name],
+      orderBy: 'requestedAt DESC',
+    );
+    
+    return results.map((map) => CashbookDownload.fromMap(map)).toList();
+  }
+
+  /// Get cashbook download by ID
+  Future<CashbookDownload?> getCashbookDownloadById(int id) async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _cashbookDownloadsTable,
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    
+    if (results.isNotEmpty) {
+      return CashbookDownload.fromMap(results.first);
+    }
+    return null;
+  }
+
+  /// Update cashbook download status
+  Future<int> updateCashbookDownloadStatus(
+    int downloadId, 
+    DownloadStatus status, 
+    {String? filePath, String? errorMessage}
+  ) async {
+    final db = await database;
+    
+    final updateData = <String, dynamic>{
+      'status': status.name,
+    };
+    
+    if (filePath != null) {
+      updateData['filePath'] = filePath;
+    }
+    
+    if (errorMessage != null) {
+      updateData['errorMessage'] = errorMessage;
+    }
+    
+    if (status == DownloadStatus.completed) {
+      updateData['completedAt'] = DateTime.now().toIso8601String();
+    }
+    
+    return await db.update(
+      _cashbookDownloadsTable,
+      updateData,
+      where: 'id = ?',
+      whereArgs: [downloadId],
+    );
+  }
+
+  /// Delete a cashbook download record (and file if it exists)
+  Future<int> deleteCashbookDownload(int downloadId) async {
+    final db = await database;
+    return await db.delete(
+      _cashbookDownloadsTable,
+      where: 'id = ?',
+      whereArgs: [downloadId],
+    );
+  }
+
+  /// Get pending downloads for background processing
+  Future<List<CashbookDownload>> getPendingCashbookDownloads() async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _cashbookDownloadsTable,
+      where: 'status IN (?, ?)',
+      whereArgs: [DownloadStatus.pending.name, DownloadStatus.downloading.name],
+      orderBy: 'requestedAt ASC',
+    );
+    
+    return results.map((map) => CashbookDownload.fromMap(map)).toList();
+  }
+
+  /// Clean up old download records (older than 30 days)
+  Future<int> cleanupOldCashbookDownloads() async {
+    final db = await database;
+    final thirtyDaysAgo = DateTime.now().subtract(Duration(days: 30)).toIso8601String();
+    
+    return await db.delete(
+      _cashbookDownloadsTable,
+      where: 'requestedAt < ?',
+      whereArgs: [thirtyDaysAgo],
+    );
+  }
+
+  /// Clean up old cashbook download data (call this periodically)
+  Future<void> cleanupCashbookDownloadsData() async {
+    await cleanupOldCashbookDownloads();
+    print('Cashbook downloads data cleanup completed');
+  }
+
+  // Request Balance operations
+  /// Insert a new request balance record
+  Future<int> insertRequestBalance(RequestBalance requestBalance) async {
+    final db = await database;
+    return await db.insert(_requestBalanceTable, requestBalance.toMap());
+  }
+
+  /// Get pending request balance records for sync
+  Future<List<RequestBalance>> getPendingRequestBalances() async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _requestBalanceTable,
+      where: 'status = ?',
+      whereArgs: [RequestBalanceStatus.pending.name],
+      orderBy: 'requestedAt ASC',
+    );
+    
+    return results.map((map) => RequestBalance.fromMap(map)).toList();
+  }
+
+  /// Get recent request balance records
+  Future<List<RequestBalance>> getRecentRequestBalances({int limit = 20}) async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _requestBalanceTable,
+      orderBy: 'requestedAt DESC',
+      limit: limit,
+    );
+    
+    return results.map((map) => RequestBalance.fromMap(map)).toList();
+  }
+
+  /// Update request balance status
+  Future<int> updateRequestBalanceStatus(int requestId, RequestBalanceStatus status, {String? errorMessage, DateTime? syncedAt}) async {
+    final db = await database;
+    Map<String, dynamic> updateData = {
+      'status': status.name,
+    };
+    
+    if (errorMessage != null) {
+      updateData['errorMessage'] = errorMessage;
+    }
+    
+    if (syncedAt != null) {
+      updateData['syncedAt'] = syncedAt.toIso8601String();
+    }
+    
+    return await db.update(
+      _requestBalanceTable,
+      updateData,
+      where: 'id = ?',
+      whereArgs: [requestId],
+    );
+  }
+
+  /// Delete a request balance record
+  Future<int> deleteRequestBalance(int requestId) async {
+    final db = await database;
+    return await db.delete(
+      _requestBalanceTable,
+      where: 'id = ?',
+      whereArgs: [requestId],
+    );
+  }
+
+  /// Clean up old request balance records (older than 7 days and synced)
+  Future<int> cleanupOldRequestBalances() async {
+    final db = await database;
+    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
+    
+    return await db.delete(
+      _requestBalanceTable,
+      where: 'status = ? AND syncedAt < ?',
+      whereArgs: [RequestBalanceStatus.synced.name, sevenDaysAgo],
+    );
+  }
+
+  /// Get request balance count by status
+  Future<int> getRequestBalanceCountByStatus(RequestBalanceStatus status) async {
+    final db = await database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_requestBalanceTable WHERE status = ?',
+      [status.name],
+    );
+    return Sqflite.firstIntValue(result) ?? 0;
   }
 }

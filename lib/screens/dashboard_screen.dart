@@ -10,6 +10,10 @@ import 'penalties_screen.dart';
 import 'admin_receipts_screen.dart';
 import 'manage_transfers_screen.dart';
 import 'manage_expenses_screen.dart';
+import 'manage_petty_cash_screen.dart';
+import 'manage_cash_count_screen.dart';
+import 'manage_cashbook_download_screen.dart';
+import 'manage_request_balance_screen.dart';
 import 'login_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -465,6 +469,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
               _navigateToExpenses();
             },
           ),
+          ListTile(
+            leading: const Icon(Icons.account_balance_wallet, color: Colors.green),
+            title: const Text('Fund Petty Cash'),
+            subtitle: const Text('Fund and manage petty cash'),
+            onTap: () {
+              Navigator.of(context).pop(); // Close drawer
+              _navigateToFundPettyCash();
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.account_balance, color: Colors.blue),
+            title: const Text('Daily Cash Count'),
+            subtitle: const Text('Capture and track daily cash counts'),
+            onTap: () {
+              Navigator.of(context).pop(); // Close drawer
+              _navigateToDailyCashCount();
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.file_download, color: Colors.blue),
+            title: const Text('Cashbook Download'),
+            subtitle: const Text('Download cashbook reports as PDF'),
+            onTap: () {
+              Navigator.of(context).pop(); // Close drawer
+              _navigateToCashbookDownload();
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.request_quote, color: Colors.blue),
+            title: const Text('Request Balance'),
+            subtitle: const Text('Submit balance requests with approval'),
+            onTap: () {
+              Navigator.of(context).pop(); // Close drawer
+              _navigateToRequestBalance();
+            },
+          ),
           const Divider(),
           ListTile(
             leading: const Icon(Icons.info_outline, color: Colors.grey),
@@ -580,6 +620,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => const ManageExpensesScreen(),
+      ),
+    );
+  }
+
+  void _navigateToFundPettyCash() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const ManagePettyCashScreen(),
+      ),
+    );
+  }
+
+  void _navigateToDailyCashCount() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const ManageCashCountScreen(),
+      ),
+    );
+  }
+
+  void _navigateToCashbookDownload() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ManageCashbookDownloadScreen(),
+      ),
+    );
+  }
+
+  void _navigateToRequestBalance() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ManageRequestBalanceScreen(),
       ),
     );
   }

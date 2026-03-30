@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/user.dart';
 import '../models/client.dart';
 import '../models/disbursement.dart';
@@ -13,6 +15,10 @@ import '../models/cancelled_penalty_fee.dart';
 import '../models/branch.dart';
 import '../models/transfer.dart';
 import '../models/expense.dart';
+import '../models/petty_cash.dart';
+import '../models/cash_count.dart';
+import '../models/cashbook_download.dart';
+import '../models/request_balance.dart';
 import 'api_service.dart';
 import 'database_helper.dart';
 
@@ -1439,6 +1445,50 @@ class AuthService {
         print('❌ Background sync expenses failed: $e');
       }
 
+      // Sync petty cash
+      try {
+        final queuedPettyCash = await _databaseHelper.getQueuedPettyCash();
+        if (queuedPettyCash.isNotEmpty) {
+          print('🔄 Background sync: ${queuedPettyCash.length} queued petty cash entries');
+          await _autoSyncPettyCash();
+        }
+      } catch (e) {
+        print('❌ Background sync petty cash failed: $e');
+      }
+
+      // Sync cash counts
+      try {
+        final queuedCashCounts = await _databaseHelper.getQueuedCashCounts();
+        if (queuedCashCounts.isNotEmpty) {
+          print('🔄 Background sync: ${queuedCashCounts.length} queued cash count entries');
+          await _autoSyncCashCounts();
+        }
+      } catch (e) {
+        print('❌ Background sync cash counts failed: $e');
+      }
+
+      // Sync request balances
+      try {
+        final queuedRequestBalances = await _databaseHelper.getPendingRequestBalances();
+        if (queuedRequestBalances.isNotEmpty) {
+          print('🔄 Background sync: ${queuedRequestBalances.length} queued request balance entries');
+          await _syncRequestBalancesInBackground();
+        }
+      } catch (e) {
+        print('❌ Background sync request balances failed: $e');
+      }
+
+      // Process pending cashbook downloads
+      try {
+        final pendingDownloads = await _databaseHelper.getPendingCashbookDownloads();
+        if (pendingDownloads.isNotEmpty) {
+          print('🔄 Background processing: ${pendingDownloads.length} pending cashbook downloads');
+          await _processQueuedDownloads();
+        }
+      } catch (e) {
+        print('❌ Background cashbook downloads failed: $e');
+      }
+
       // Clean up expired transfers
       try {
         await _databaseHelper.cleanupTransfersData();
@@ -1451,6 +1501,34 @@ class AuthService {
         await _databaseHelper.cleanupExpensesData();
       } catch (e) {
         print('❌ Expenses cleanup failed: $e');
+      }
+
+      // Clean up expired petty cash
+      try {
+        await _databaseHelper.cleanupPettyCashData();
+      } catch (e) {
+        print('❌ Petty cash cleanup failed: $e');
+      }
+
+      // Clean up expired cash counts
+      try {
+        await _databaseHelper.cleanupCashCountData();
+      } catch (e) {
+        print('❌ Cash count cleanup failed: $e');
+      }
+
+      // Clean up old cashbook downloads
+      try {
+        await _databaseHelper.cleanupCashbookDownloadsData();
+      } catch (e) {
+        print('❌ Cashbook downloads cleanup failed: $e');
+      }
+
+      // Clean up old request balances
+      try {
+        await _databaseHelper.cleanupOldRequestBalances();
+      } catch (e) {
+        print('❌ Request balances cleanup failed: $e');
       }
 
       // Sync disbursements - only sync for client if implemented
@@ -2448,6 +2526,1265 @@ class AuthService {
   }
 
   // ===== END EXPENSE MANAGEMENT METHODS =====
+
+  // ===== FUND PETTY CASH MANAGEMENT METHODS =====
+
+  /// Fund petty cash (offline-first)
+  Future<PettyCashResult> fundPettyCash({
+    required double amount,
+    required DateTime dateApplicable,
+  }) async {
+    if (!isLoggedIn || _currentUser == null) {
+      return PettyCashResult(
+        success: false,
+        message: 'User not logged in',
+        pettyCash: null,
+      );
+    }
+
+    try {
+      // Validate amount
+      if (amount <= 0) {
+        return PettyCashResult(
+          success: false,
+          message: 'Amount must be greater than zero',
+          pettyCash: null,
+        );
+      }
+
+      // Validate date (not more than 2 days ago, not in future)
+      final now = DateTime.now();
+      final twoDaysAgo = now.subtract(Duration(days: 2));
+      
+      if (dateApplicable.isBefore(twoDaysAgo)) {
+        return PettyCashResult(
+          success: false,
+          message: 'Date applicable cannot be more than 2 days ago',
+          pettyCash: null,
+        );
+      }
+      
+      if (dateApplicable.isAfter(now)) {
+        return PettyCashResult(
+          success: false,
+          message: 'Date applicable cannot be in the future',
+          pettyCash: null,
+        );
+      }
+
+      // Create petty cash object
+      final pettyCash = PettyCash(
+        branchName: _currentUser!.branch,
+        amount: amount,
+        dateApplicable: dateApplicable,
+        isSynced: false,
+        createdAt: DateTime.now(),
+      );
+
+      // Check for potential duplicates (WARNING only, don't block)
+      final similarEntries = await _databaseHelper.findSimilarPettyCash(pettyCash);
+      String warningMessage = '';
+      
+      if (similarEntries.isNotEmpty) {
+        warningMessage = '\n⚠️ WARNING: Similar petty cash funding found (${pettyCash.formattedAmount}, ${pettyCash.formattedDate})';
+      }
+
+      // Store locally
+      final pettyCashId = await _databaseHelper.insertPettyCash(pettyCash);
+      final storedPettyCash = await _databaseHelper.getPettyCashById(pettyCashId);
+
+      print('✅ Petty cash funded locally: ${pettyCash.formattedAmount} for ${_currentUser!.branch}');
+
+      // Try to sync immediately if we have internet (with small delay)
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _autoSyncPettyCash();
+      });
+
+      return PettyCashResult(
+        success: true,
+        message: 'Petty cash funded successfully - queued for sync${warningMessage}',
+        pettyCash: storedPettyCash,
+      );
+    } catch (e) {
+      print('Error funding petty cash: $e');
+      return PettyCashResult(
+        success: false,
+        message: 'Failed to fund petty cash: $e',
+        pettyCash: null,
+      );
+    }
+  }
+
+  /// Auto-sync queued petty cash in background - ONLY mark as synced on TRUE SUCCESS
+  Future<void> _autoSyncPettyCash() async {
+    try {
+      final queuedPettyCash = await _databaseHelper.getQueuedPettyCash();
+      if (queuedPettyCash.isEmpty) {
+        return; // No queued petty cash to sync
+      }
+
+      print('🔄 Auto-syncing ${queuedPettyCash.length} petty cash entries...');
+      await _apiService.initialize();
+
+      for (final pettyCash in queuedPettyCash) {
+        try {
+          // Prepare API payload
+          final pettyCashData = pettyCash.toJson();
+          
+          print('🔄 Auto-syncing petty cash ${pettyCash.id}: ${pettyCash.formattedAmount}');
+
+          // Call fund petty cash API endpoint and validate response
+          final response = await _apiService.fundPettyCash(pettyCashData);
+          bool syncSuccess = false;
+
+          // Validate response - ONLY mark as synced if we get 200 with valid response
+          if (response.statusCode == 200) {
+            try {
+              final responseData = json.decode(response.body);
+              
+              // Check if response indicates success
+              if (responseData is Map<String, dynamic>) {
+                // Based on the expected response: { success = true, message = "Petty cash funded successfully.", data = record }
+                if (responseData.containsKey('success') && responseData['success'] == true) {
+                  syncSuccess = true;
+                  print('✅ Petty cash ${pettyCash.id} synced successfully');
+                  print('✅ Response message: ${responseData['message']}');
+                } else {
+                  print('❌ Petty cash ${pettyCash.id}: API returned success=false or invalid structure');
+                }
+              } else {
+                print('❌ Petty cash ${pettyCash.id}: Invalid response structure');
+              }
+            } catch (e) {
+              print('❌ Error parsing response for petty cash ${pettyCash.id}: $e');
+            }
+          } else {
+            print('❌ Petty cash ${pettyCash.id}: Unexpected status code ${response.statusCode}');
+          }
+
+          // Only mark as synced and continue background processing if we had true success
+          if (syncSuccess) {
+            await _databaseHelper.updatePettyCashSyncStatus(pettyCash.id!, true);
+            print('✅ Auto-synced petty cash ${pettyCash.id}');
+          } else {
+            print('❌ Failed to auto-sync petty cash ${pettyCash.id} - will retry later');
+            // Don't mark as failed, just leave queued for retry
+          }
+        } catch (e) {
+          print('❌ Error auto-syncing petty cash ${pettyCash.id}: $e');
+          // Don't update sync status on error, leave queued for retry
+        }
+      }
+
+      // Clean up expired synced data
+      await _databaseHelper.cleanupPettyCashData();
+    } catch (e) {
+      print('❌ Error in auto-sync petty cash: $e');
+    }
+  }
+
+  /// Manually sync queued petty cash
+  Future<PettyCashSyncResult> syncQueuedPettyCash() async {
+    if (!isLoggedIn || _currentUser == null) {
+      return PettyCashSyncResult(
+        success: false,
+        message: 'User not logged in',
+        syncedCount: 0,
+        failedCount: 0,
+      );
+    }
+
+    try {
+      final queuedPettyCash = await _databaseHelper.getQueuedPettyCash();
+
+      if (queuedPettyCash.isEmpty) {
+        return PettyCashSyncResult(
+          success: true,
+          message: 'No queued petty cash to sync',
+          syncedCount: 0,
+          failedCount: 0,
+        );
+      }
+
+      await _apiService.initialize();
+
+      int syncedCount = 0;
+      int failedCount = 0;
+      List<String> syncErrors = [];
+
+      for (final pettyCash in queuedPettyCash) {
+        try {
+          print('🔄 Syncing petty cash: ${pettyCash.formattedAmount}...');
+
+          final pettyCashData = pettyCash.toJson();
+          final response = await _apiService.fundPettyCash(pettyCashData);
+          bool syncSuccess = false;
+
+          // Validate response - ONLY mark as synced if we get 200 with valid response
+          if (response.statusCode == 200) {
+            try {
+              final responseData = json.decode(response.body);
+              
+              // Check if response indicates success
+              if (responseData is Map<String, dynamic> && 
+                  responseData.containsKey('success') && 
+                  responseData['success'] == true) {
+                
+                syncSuccess = true;
+                print('✅ Petty cash ${pettyCash.id} synced successfully');
+              } else {
+                syncErrors.add('Petty cash ${pettyCash.id}: Invalid response structure or success=false');
+              }
+            } catch (e) {
+              syncErrors.add('Petty cash ${pettyCash.id}: Error parsing response JSON - $e');
+            }
+          } else {
+            syncErrors.add('Petty cash ${pettyCash.id}: Unexpected status code ${response.statusCode}');
+          }
+
+          // Only mark as synced and count as success if we had true success
+          if (syncSuccess) {
+            await _databaseHelper.updatePettyCashSyncStatus(pettyCash.id!, true);
+            syncedCount++;
+            print('✅ Synced petty cash ${pettyCash.id}');
+          } else {
+            failedCount++;
+            print('❌ Failed to sync petty cash ${pettyCash.id}');
+          }
+        } catch (e) {
+          failedCount++;
+          syncErrors.add('Petty cash ${pettyCash.id}: $e');
+          print('❌ Error syncing petty cash ${pettyCash.id}: $e');
+        }
+      }
+
+      String message = '$syncedCount petty cash entries synced successfully';
+      if (failedCount > 0) {
+        message += ', $failedCount failed';
+      }
+
+      return PettyCashSyncResult(
+        success: syncedCount > 0 || failedCount == 0,
+        message: message,
+        syncedCount: syncedCount,
+        failedCount: failedCount,
+      );
+    } catch (e) {
+      print('Error syncing queued petty cash: $e');
+      return PettyCashSyncResult(
+        success: false,
+        message: 'Sync failed: $e',
+        syncedCount: 0,
+        failedCount: 0,
+      );
+    }
+  }
+
+  /// Get all petty cash entries
+  Future<List<PettyCash>> getAllPettyCash() async {
+    return await _databaseHelper.getAllPettyCash();
+  }
+
+  /// Get queued petty cash entries (not synced)
+  Future<List<PettyCash>> getQueuedPettyCash() async {
+    return await _databaseHelper.getQueuedPettyCash();
+  }
+
+  /// Get synced petty cash entries (not expired)
+  Future<List<PettyCash>> getSyncedPettyCash() async {
+    return await _databaseHelper.getSyncedPettyCash();
+  }
+
+  /// Delete a queued petty cash entry
+  Future<PettyCashResult> deleteQueuedPettyCash(int pettyCashId) async {
+    if (!isLoggedIn) {
+      return PettyCashResult(
+        success: false,
+        message: 'User not logged in',
+        pettyCash: null,
+      );
+    }
+
+    try {
+      final pettyCash = await _databaseHelper.getPettyCashById(pettyCashId);
+      if (pettyCash == null) {
+        return PettyCashResult(
+          success: false,
+          message: 'Petty cash entry not found',
+          pettyCash: null,
+        );
+      }
+
+      if (pettyCash.isSynced) {
+        return PettyCashResult(
+          success: false,
+          message: 'Cannot delete synced petty cash entry',
+          pettyCash: null,
+        );
+      }
+
+      final deleted = await _databaseHelper.deletePettyCash(pettyCashId);
+      if (deleted > 0) {
+        print('🗑️ Deleted queued petty cash: ${pettyCashId}');
+        return PettyCashResult(
+          success: true,
+          message: 'Petty cash entry deleted successfully',
+          pettyCash: pettyCash,
+        );
+      } else {
+        return PettyCashResult(
+          success: false,
+          message: 'Failed to delete petty cash entry',
+          pettyCash: null,
+        );
+      }
+    } catch (e) {
+      print('Error deleting petty cash entry: $e');
+      return PettyCashResult(
+        success: false,
+        message: 'Error deleting petty cash entry: $e',
+        pettyCash: null,
+      );
+    }
+  }
+
+  /// Validate petty cash date (helper method)
+  bool isValidPettyCashDate(DateTime date) {
+    final now = DateTime.now();
+    final twoDaysAgo = now.subtract(Duration(days: 2));
+    
+    return date.isAfter(twoDaysAgo) && !date.isAfter(now);
+  }
+
+  /// Check for duplicate petty cash entries (warning only)
+  Future<List<PettyCash>> checkForSimilarPettyCash(PettyCash pettyCash) async {
+    return await _databaseHelper.findSimilarPettyCash(pettyCash);
+  }
+
+  /// Get petty cash entries for date range
+  Future<List<PettyCash>> getPettyCashForDateRange(DateTime startDate, DateTime endDate) async {
+    if (!isLoggedIn || _currentUser == null) {
+      return [];
+    }
+    
+    return await _databaseHelper.getPettyCashForDateRange(startDate, endDate, branchName: _currentUser!.branch);
+  }
+
+  // ===== END FUND PETTY CASH MANAGEMENT METHODS =====
+
+  // ===== DAILY CASH COUNT MANAGEMENT METHODS =====
+
+  /// Capture daily cash count (offline-first)
+  Future<CashCountResult> captureDailyCashCount({
+    required double amount,
+    required DateTime cashbookDate,
+  }) async {
+    if (!isLoggedIn || _currentUser == null) {
+      return CashCountResult(
+        success: false,
+        message: 'User not logged in',
+        cashCount: null,
+      );
+    }
+
+    try {
+      // Validate amount
+      if (amount <= 0) {
+        return CashCountResult(
+          success: false,
+          message: 'Amount must be greater than zero',
+          cashCount: null,
+        );
+      }
+
+      // Validate date (not more than 1 day ago, not in future)
+      final now = DateTime.now();
+      final oneDayAgo = now.subtract(Duration(days: 1));
+      
+      if (cashbookDate.isBefore(oneDayAgo)) {
+        return CashCountResult(
+          success: false,
+          message: 'Cashbook date cannot be more than 1 day ago',
+          cashCount: null,
+        );
+      }
+      
+      if (cashbookDate.isAfter(now)) {
+        return CashCountResult(
+          success: false,
+          message: 'Cashbook date cannot be in the future',
+          cashCount: null,
+        );
+      }
+
+      // Create cash count object
+      final cashCount = CashCount(
+        branchName: _currentUser!.branch,
+        capturedBy: _currentUser!.fullName,
+        amount: amount,
+        cashbookDate: cashbookDate,
+        isSynced: false,
+        createdAt: DateTime.now(),
+      );
+
+      // Check for potential duplicates (WARNING only, don't block)
+      final similarEntries = await _databaseHelper.findSimilarCashCounts(cashCount);
+      String warningMessage = '';
+      
+      if (similarEntries.isNotEmpty) {
+        warningMessage = '\n⚠️ WARNING: Similar cash count found for ${cashCount.formattedDate}';
+      }
+
+      // Store locally
+      final cashCountId = await _databaseHelper.insertCashCount(cashCount);
+      final storedCashCount = await _databaseHelper.getCashCountById(cashCountId);
+
+      print('✅ Cash count captured locally: ${cashCount.formattedAmount} for ${_currentUser!.branch}');
+
+      // Try to sync immediately if we have internet (with small delay)
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _autoSyncCashCounts();
+      });
+
+      return CashCountResult(
+        success: true,
+        message: 'Cash count captured successfully - queued for sync${warningMessage}',
+        cashCount: storedCashCount,
+      );
+    } catch (e) {
+      print('Error capturing cash count: $e');
+      return CashCountResult(
+        success: false,
+        message: 'Failed to capture cash count: $e',
+        cashCount: null,
+      );
+    }
+  }
+
+  /// Auto-sync queued cash counts in background - ONLY mark as synced on TRUE SUCCESS
+  Future<void> _autoSyncCashCounts() async {
+    try {
+      final queuedCashCounts = await _databaseHelper.getQueuedCashCounts();
+      if (queuedCashCounts.isEmpty) {
+        return; // No queued cash counts to sync
+      }
+
+      print('🔄 Auto-syncing ${queuedCashCounts.length} cash count entries...');
+      await _apiService.initialize();
+
+      for (final cashCount in queuedCashCounts) {
+        try {
+          // Prepare API payload
+          final cashCountData = cashCount.toJson();
+          
+          print('🔄 Auto-syncing cash count ${cashCount.id}: ${cashCount.formattedAmount}');
+
+          // Call cash count API endpoint and validate response
+          final response = await _apiService.captureDailyCashCount(cashCountData);
+          bool syncSuccess = false;
+
+          // Validate response - ONLY mark as synced if we get 200 with valid response
+          if (response.statusCode == 200) {
+            try {
+              final responseData = json.decode(response.body);
+              
+              // Check if response indicates success
+              if (responseData is Map<String, dynamic>) {
+                // Based on the expected response: { m = "Cash count captured successfully" }
+                if (responseData.containsKey('m') && responseData['m'].toString().contains('successfully')) {
+                  syncSuccess = true;
+                  print('✅ Cash count ${cashCount.id} synced successfully');
+                  print('✅ Response message: ${responseData['m']}');
+                } else {
+                  print('❌ Cash count ${cashCount.id}: API returned unexpected response structure');
+                }
+              } else {
+                print('❌ Cash count ${cashCount.id}: Invalid response structure');
+              }
+            } catch (e) {
+              print('❌ Error parsing response for cash count ${cashCount.id}: $e');
+            }
+          } else {
+            print('❌ Cash count ${cashCount.id}: Unexpected status code ${response.statusCode}');
+          }
+
+          // Only mark as synced and continue background processing if we had true success
+          if (syncSuccess) {
+            await _databaseHelper.updateCashCountSyncStatus(cashCount.id!, true);
+            print('✅ Auto-synced cash count ${cashCount.id}');
+          } else {
+            print('❌ Failed to auto-sync cash count ${cashCount.id} - will retry later');
+            // Don't mark as failed, just leave queued for retry
+          }
+        } catch (e) {
+          print('❌ Error auto-syncing cash count ${cashCount.id}: $e');
+          // Don't update sync status on error, leave queued for retry
+        }
+      }
+
+      // Clean up expired synced data
+      await _databaseHelper.cleanupCashCountData();
+    } catch (e) {
+      print('❌ Error in auto-sync cash counts: $e');
+    }
+  }
+
+  /// Manually sync queued cash counts
+  Future<CashCountSyncResult> syncQueuedCashCounts() async {
+    if (!isLoggedIn || _currentUser == null) {
+      return CashCountSyncResult(
+        success: false,
+        message: 'User not logged in',
+        syncedCount: 0,
+        failedCount: 0,
+      );
+    }
+
+    try {
+      final queuedCashCounts = await _databaseHelper.getQueuedCashCounts();
+
+      if (queuedCashCounts.isEmpty) {
+        return CashCountSyncResult(
+          success: true,
+          message: 'No queued cash counts to sync',
+          syncedCount: 0,
+          failedCount: 0,
+        );
+      }
+
+      await _apiService.initialize();
+
+      int syncedCount = 0;
+      int failedCount = 0;
+      List<String> syncErrors = [];
+
+      for (final cashCount in queuedCashCounts) {
+        try {
+          print('🔄 Syncing cash count: ${cashCount.formattedAmount}...');
+
+          final cashCountData = cashCount.toJson();
+          final response = await _apiService.captureDailyCashCount(cashCountData);
+          bool syncSuccess = false;
+
+          // Validate response - ONLY mark as synced if we get 200 with valid response
+          if (response.statusCode == 200) {
+            try {
+              final responseData = json.decode(response.body);
+              
+              // Check if response indicates success
+              if (responseData is Map<String, dynamic> && 
+                  responseData.containsKey('m') && 
+                  responseData['m'].toString().contains('successfully')) {
+                
+                syncSuccess = true;
+                print('✅ Cash count ${cashCount.id} synced successfully');
+              } else {
+                syncErrors.add('Cash count ${cashCount.id}: Invalid response structure or missing success message');
+              }
+            } catch (e) {
+              syncErrors.add('Cash count ${cashCount.id}: Error parsing response JSON - $e');
+            }
+          } else {
+            syncErrors.add('Cash count ${cashCount.id}: Unexpected status code ${response.statusCode}');
+          }
+
+          // Only mark as synced and count as success if we had true success
+          if (syncSuccess) {
+            await _databaseHelper.updateCashCountSyncStatus(cashCount.id!, true);
+            syncedCount++;
+            print('✅ Synced cash count ${cashCount.id}');
+          } else {
+            failedCount++;
+            print('❌ Failed to sync cash count ${cashCount.id}');
+          }
+        } catch (e) {
+          failedCount++;
+          syncErrors.add('Cash count ${cashCount.id}: $e');
+          print('❌ Error syncing cash count ${cashCount.id}: $e');
+        }
+      }
+
+      String message = '$syncedCount cash count entries synced successfully';
+      if (failedCount > 0) {
+        message += ', $failedCount failed';
+      }
+
+      return CashCountSyncResult(
+        success: syncedCount > 0 || failedCount == 0,
+        message: message,
+        syncedCount: syncedCount,
+        failedCount: failedCount,
+      );
+    } catch (e) {
+      print('Error syncing queued cash counts: $e');
+      return CashCountSyncResult(
+        success: false,
+        message: 'Sync failed: $e',
+        syncedCount: 0,
+        failedCount: 0,
+      );
+    }
+  }
+
+  /// Get all cash count entries
+  Future<List<CashCount>> getAllCashCounts() async {
+    return await _databaseHelper.getAllCashCounts();
+  }
+
+  /// Get queued cash count entries (not synced)
+  Future<List<CashCount>> getQueuedCashCounts() async {
+    return await _databaseHelper.getQueuedCashCounts();
+  }
+
+  /// Get synced cash count entries (not expired)
+  Future<List<CashCount>> getSyncedCashCounts() async {
+    return await _databaseHelper.getSyncedCashCounts();
+  }
+
+  /// Delete a queued cash count entry
+  Future<CashCountResult> deleteQueuedCashCount(int cashCountId) async {
+    if (!isLoggedIn) {
+      return CashCountResult(
+        success: false,
+        message: 'User not logged in',
+        cashCount: null,
+      );
+    }
+
+    try {
+      final cashCount = await _databaseHelper.getCashCountById(cashCountId);
+      if (cashCount == null) {
+        return CashCountResult(
+          success: false,
+          message: 'Cash count entry not found',
+          cashCount: null,
+        );
+      }
+
+      if (cashCount.isSynced) {
+        return CashCountResult(
+          success: false,
+          message: 'Cannot delete synced cash count entry',
+          cashCount: null,
+        );
+      }
+
+      final deleted = await _databaseHelper.deleteCashCount(cashCountId);
+      if (deleted > 0) {
+        print('🗑️ Deleted queued cash count: ${cashCountId}');
+        return CashCountResult(
+          success: true,
+          message: 'Cash count entry deleted successfully',
+          cashCount: cashCount,
+        );
+      } else {
+        return CashCountResult(
+          success: false,
+          message: 'Failed to delete cash count entry',
+          cashCount: null,
+        );
+      }
+    } catch (e) {
+      print('Error deleting cash count entry: $e');
+      return CashCountResult(
+        success: false,
+        message: 'Error deleting cash count entry: $e',
+        cashCount: null,
+      );
+    }
+  }
+
+  /// Validate cash count date (helper method)
+  bool isValidCashCountDate(DateTime date) {
+    final now = DateTime.now();
+    final oneDayAgo = now.subtract(Duration(days: 1));
+    
+    return date.isAfter(oneDayAgo) && !date.isAfter(now);
+  }
+
+  /// Check for duplicate cash count entries (warning only)
+  Future<List<CashCount>> checkForSimilarCashCounts(CashCount cashCount) async {
+    return await _databaseHelper.findSimilarCashCounts(cashCount);
+  }
+
+  /// Get cash count entries for date range
+  Future<List<CashCount>> getCashCountsForDateRange(DateTime startDate, DateTime endDate) async {
+    if (!isLoggedIn || _currentUser == null) {
+      return [];
+    }
+    
+    return await _databaseHelper.getCashCountsForDateRange(startDate, endDate, branchName: _currentUser!.branch);
+  }
+
+  // ===== END DAILY CASH COUNT MANAGEMENT METHODS =====
+
+  // ===== CASHBOOK DOWNLOAD MANAGEMENT METHODS =====
+
+  /// Request cashbook download (offline-first)
+  Future<CashbookDownloadResult> requestCashbookDownload({
+    required DateTime cashbookDate,
+  }) async {
+    if (!isLoggedIn || _currentUser == null) {
+      return CashbookDownloadResult(
+        success: false,
+        message: 'User not logged in',
+        download: null,
+      );
+    }
+
+    try {
+      // Validate date (cannot be in the future)
+      final now = DateTime.now();
+      if (cashbookDate.isAfter(now)) {
+        return CashbookDownloadResult(
+          success: false,
+          message: 'Cashbook date cannot be in the future',
+          download: null,
+        );
+      }
+
+      // Create download request
+      final download = CashbookDownload(
+        branchName: _currentUser!.branch,
+        cashbookDate: cashbookDate,
+        status: DownloadStatus.pending,
+        requestedAt: DateTime.now(),
+      );
+
+      // Store locally
+      final downloadId = await _databaseHelper.insertCashbookDownload(download);
+      final storedDownload = await _databaseHelper.getCashbookDownloadById(downloadId);
+
+      print('✅ Cashbook download requested: ${storedDownload!.formattedDate}');
+
+      // Try to start download immediately if we have internet
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _processQueuedDownloads();
+      });
+
+      return CashbookDownloadResult(
+        success: true,
+        message: 'Cashbook download requested - processing in background',
+        download: storedDownload,
+      );
+    } catch (e) {
+      print('Error requesting cashbook download: $e');
+      return CashbookDownloadResult(
+        success: false,
+        message: 'Failed to request download: $e',
+        download: null,
+      );
+    }
+  }
+
+  /// Process queued downloads in background
+  Future<void> _processQueuedDownloads() async {
+    try {
+      final pendingDownloads = await _databaseHelper.getPendingCashbookDownloads();
+      if (pendingDownloads.isEmpty) {
+        return;
+      }
+
+      print('🔄 Processing ${pendingDownloads.length} pending cashbook downloads...');
+      await _apiService.initialize();
+
+      for (final download in pendingDownloads) {
+        await _processSingleDownload(download);
+      }
+
+      // Clean up old download records
+      await _databaseHelper.cleanupCashbookDownloadsData();
+    } catch (e) {
+      print('❌ Error in processing queued downloads: $e');
+    }
+  }
+
+  /// Process a single download
+  Future<void> _processSingleDownload(CashbookDownload download) async {
+    try {
+      // Mark as downloading
+      await _databaseHelper.updateCashbookDownloadStatus(
+        download.id!,
+        DownloadStatus.downloading,
+      );
+
+      // Prepare API request
+      final requestData = {
+        'BranchName': download.branchName,
+        'CashbookDate': download.cashbookDate.toIso8601String(),
+      };
+
+      print('🔄 Downloading cashbook: ${download.formattedDate}');
+
+      // Call download API
+      final fileBytes = await _apiService.downloadCashbook(requestData);
+
+      if (fileBytes != null) {
+        // Save file to local storage
+        final filePath = await _saveCashbookFile(download, fileBytes);
+        
+        if (filePath != null) {
+          // Mark as completed
+          await _databaseHelper.updateCashbookDownloadStatus(
+            download.id!,
+            DownloadStatus.completed,
+            filePath: filePath,
+          );
+          print('✅ Cashbook download completed: ${download.formattedDate}');
+        } else {
+          // Mark as failed
+          await _databaseHelper.updateCashbookDownloadStatus(
+            download.id!,
+            DownloadStatus.failed,
+            errorMessage: 'Failed to save file',
+          );
+        }
+      } else {
+        // Mark as failed
+        await _databaseHelper.updateCashbookDownloadStatus(
+          download.id!,
+          DownloadStatus.failed,
+          errorMessage: 'Download failed - no data received',
+        );
+      }
+    } catch (e) {
+      print('❌ Error processing download ${download.id}: $e');
+      
+      // Mark as failed
+      await _databaseHelper.updateCashbookDownloadStatus(
+        download.id!,
+        DownloadStatus.failed,
+        errorMessage: 'Download error: $e',
+      );
+    }
+  }
+
+  /// Save cashbook file to local storage
+  Future<String?> _saveCashbookFile(CashbookDownload download, List<int> fileBytes) async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final cashbookDir = Directory('${directory.path}/cashbooks');
+      
+      // Create directory if it doesn't exist
+      if (!await cashbookDir.exists()) {
+        await cashbookDir.create(recursive: true);
+      }
+
+      // Generate filename
+      final dateStr = "${download.cashbookDate.year}-${download.cashbookDate.month.toString().padLeft(2, '0')}-${download.cashbookDate.day.toString().padLeft(2, '0')}";
+      final filename = '${download.branchName}_Cashbook_${dateStr}.pdf';
+      
+      final file = File('${cashbookDir.path}/$filename');
+      
+      // Write file
+      await file.writeAsBytes(fileBytes);
+      
+      print('💾 Cashbook saved: ${file.path}');
+      return file.path;
+    } catch (e) {
+      print('❌ Error saving cashbook file: $e');
+      return null;
+    }
+  }
+
+  /// Get recent cashbook downloads
+  Future<List<CashbookDownload>> getRecentCashbookDownloads({int limit = 5}) async {
+    return await _databaseHelper.getRecentCashbookDownloads(limit: limit);
+  }
+
+  /// Get all cashbook downloads
+  Future<List<CashbookDownload>> getAllCashbookDownloads() async {
+    return await _databaseHelper.getAllCashbookDownloads();
+  }
+
+  /// Delete a cashbook download and its file
+  Future<CashbookDownloadResult> deleteCashbookDownload(int downloadId) async {
+    if (!isLoggedIn) {
+      return CashbookDownloadResult(
+        success: false,
+        message: 'User not logged in',
+        download: null,
+      );
+    }
+
+    try {
+      final download = await _databaseHelper.getCashbookDownloadById(downloadId);
+      if (download == null) {
+        return CashbookDownloadResult(
+          success: false,
+          message: 'Download record not found',
+          download: null,
+        );
+      }
+
+      // Delete file if it exists
+      if (download.filePath != null && download.filePath!.isNotEmpty) {
+        try {
+          final file = File(download.filePath!);
+          if (await file.exists()) {
+            await file.delete();
+            print('🗑️ Deleted file: ${download.filePath}');
+          }
+        } catch (e) {
+          print('⚠️ Error deleting file: $e');
+          // Continue with database deletion even if file deletion fails
+        }
+      }
+
+      // Delete database record
+      final deleted = await _databaseHelper.deleteCashbookDownload(downloadId);
+      if (deleted > 0) {
+        print('🗑️ Deleted cashbook download: ${downloadId}');
+        return CashbookDownloadResult(
+          success: true,
+          message: 'Download deleted successfully',
+          download: download,
+        );
+      } else {
+        return CashbookDownloadResult(
+          success: false,
+          message: 'Failed to delete download record',
+          download: null,
+        );
+      }
+    } catch (e) {
+      print('Error deleting cashbook download: $e');
+      return CashbookDownloadResult(
+        success: false,
+        message: 'Delete failed: $e',
+        download: null,
+      );
+    }
+  }
+
+  /// Manually process pending downloads
+  Future<CashbookDownloadSyncResult> processQueuedDownloadsManually() async {
+    if (!isLoggedIn || _currentUser == null) {
+      return CashbookDownloadSyncResult(
+        success: false,
+        message: 'User not logged in',
+        completedCount: 0,
+        failedCount: 0,
+      );
+    }
+
+    try {
+      final pendingDownloads = await _databaseHelper.getPendingCashbookDownloads();
+
+      if (pendingDownloads.isEmpty) {
+        return CashbookDownloadSyncResult(
+          success: true,
+          message: 'No pending downloads',
+          completedCount: 0,
+          failedCount: 0,
+        );
+      }
+
+      await _apiService.initialize();
+
+      int completedCount = 0;
+      int failedCount = 0;
+
+      for (final download in pendingDownloads) {
+        try {
+          await _processSingleDownload(download);
+          
+          // Check final status
+          final updatedDownload = await _databaseHelper.getCashbookDownloadById(download.id!);
+          if (updatedDownload?.status == DownloadStatus.completed) {
+            completedCount++;
+          } else {
+            failedCount++;
+          }
+        } catch (e) {
+          failedCount++;
+          print('❌ Error processing download ${download.id}: $e');
+        }
+      }
+
+      String message = '$completedCount downloads completed successfully';
+      if (failedCount > 0) {
+        message += ', $failedCount failed';
+      }
+
+      return CashbookDownloadSyncResult(
+        success: completedCount > 0 || failedCount == 0,
+        message: message,
+        completedCount: completedCount,
+        failedCount: failedCount,
+      );
+    } catch (e) {
+      print('Error processing queued downloads: $e');
+      return CashbookDownloadSyncResult(
+        success: false,
+        message: 'Processing failed: $e',
+        completedCount: 0,
+        failedCount: 0,
+      );
+    }
+  }
+
+  // ===== REQUEST BALANCE MANAGEMENT METHODS =====
+
+  /// Request a balance request with validation
+  Future<RequestBalanceResult> requestBalance({
+    required DateTime cashbookDate,
+    required double amount,
+    required String reason,
+  }) async {
+    if (!isLoggedIn || _currentUser == null) {
+      return RequestBalanceResult(
+        success: false,
+        message: 'User not logged in',
+        request: null,
+      );
+    }
+
+    try {
+      // Validate date (cannot be more than 1 day back datable)
+      final yesterday = DateTime.now().subtract(Duration(days: 1));
+      if (cashbookDate.isBefore(DateTime(yesterday.year, yesterday.month, yesterday.day))) {
+        return RequestBalanceResult(
+          success: false,
+          message: 'Cashbook date cannot be more than 1 day in the past',
+          request: null,
+        );
+      }
+
+      // Validate amount (must be positive)
+      if (amount <= 0) {
+        return RequestBalanceResult(
+          success: false,
+          message: 'Amount must be greater than zero',
+          request: null,
+        );
+      }
+
+      // Validate reason (max 20 words)
+      final wordCount = reason.trim().split(RegExp(r'\s+')).length;
+      if (wordCount > 20) {
+        return RequestBalanceResult(
+          success: false,
+          message: 'Reason cannot exceed 20 words',
+          request: null,
+        );
+      }
+
+      if (reason.trim().isEmpty) {
+        return RequestBalanceResult(
+          success: false,
+          message: 'Reason is required',
+          request: null,
+        );
+      }
+
+      // Create request balance record
+      final requestBalance = RequestBalance(
+        branchName: _currentUser!.branch,
+        cashbookDate: cashbookDate,
+        amount: amount,
+        reason: reason.trim(),
+        requestedAt: DateTime.now(),
+      );
+
+      // Save to database (offline-first approach)
+      final requestId = await _databaseHelper.insertRequestBalance(requestBalance);
+      final savedRequest = requestBalance.copyWith(id: requestId);
+
+      print('✅ Request balance saved locally: ${savedRequest.formattedAmount} for ${savedRequest.formattedDate}');
+
+      // Queue for background sync
+      _queueRequestBalanceForSync();
+
+      return RequestBalanceResult(
+        success: true,
+        message: 'Balance request submitted successfully and queued for processing',
+        request: savedRequest,
+      );
+    } catch (e) {
+      print('Error creating request balance: $e');
+      return RequestBalanceResult(
+        success: false,
+        message: 'Request failed: $e',
+        request: null,
+      );
+    }
+  }
+
+  /// Queue request balance for background sync
+  void _queueRequestBalanceForSync() {
+    // Add a delay to allow for immediate UI feedback
+    Timer(Duration(seconds: 2), () {
+      _syncRequestBalancesInBackground();
+    });
+  }
+
+  /// Background sync for request balances
+  Future<void> _syncRequestBalancesInBackground() async {
+    if (!isLoggedIn) return;
+
+    try {
+      final pendingRequests = await _databaseHelper.getPendingRequestBalances();
+      
+      if (pendingRequests.isEmpty) {
+        print('📝 No pending request balances to sync');
+        return;
+      }
+
+      await _apiService.initialize();
+
+      for (final request in pendingRequests) {
+        try {
+          print('🔄 Syncing request balance: ${request.formattedAmount} for ${request.formattedDate}');
+
+          final apiPayload = request.toApiPayload();
+          final syncSuccess = await _apiService.syncRequestBalance(apiPayload);
+
+          if (syncSuccess) {
+            await _databaseHelper.updateRequestBalanceStatus(
+              request.id!,
+              RequestBalanceStatus.synced,
+              syncedAt: DateTime.now(),
+            );
+            print('✅ Request balance synced successfully: ${request.id}');
+          } else {
+            await _databaseHelper.updateRequestBalanceStatus(
+              request.id!,
+              RequestBalanceStatus.failed,
+              errorMessage: 'API sync failed',
+            );
+            print('❌ Request balance sync failed: ${request.id}');
+          }
+        } catch (e) {
+          await _databaseHelper.updateRequestBalanceStatus(
+            request.id!,
+            RequestBalanceStatus.failed,
+            errorMessage: e.toString(),
+          );
+          print('❌ Request balance sync error: $e');
+        }
+      }
+
+      // Clean up old synced records
+      await _databaseHelper.cleanupOldRequestBalances();
+    } catch (e) {
+      print('❌ Error in request balance background sync: $e');
+    }
+  }
+
+  /// Get recent request balances
+  Future<List<RequestBalance>> getRecentRequestBalances({int limit = 20}) async {
+    return await _databaseHelper.getRecentRequestBalances(limit: limit);
+  }
+
+  /// Get pending request balance count
+  Future<int> getPendingRequestBalanceCount() async {
+    return await _databaseHelper.getRequestBalanceCountByStatus(RequestBalanceStatus.pending);
+  }
+
+  /// Delete a request balance
+  Future<RequestBalanceResult> deleteRequestBalance(int requestId) async {
+    if (!isLoggedIn) {
+      return RequestBalanceResult(
+        success: false,
+        message: 'User not logged in',
+        request: null,
+      );
+    }
+
+    try {
+      final deleted = await _databaseHelper.deleteRequestBalance(requestId);
+      if (deleted > 0) {
+        return RequestBalanceResult(
+          success: true,
+          message: 'Request balance deleted successfully',
+          request: null,
+        );
+      } else {
+        return RequestBalanceResult(
+          success: false,
+          message: 'Request balance not found',
+          request: null,
+        );
+      }
+    } catch (e) {
+      print('Error deleting request balance: $e');
+      return RequestBalanceResult(
+        success: false,
+        message: 'Delete failed: $e',
+        request: null,
+      );
+    }
+  }
+
+  /// Manually process pending request balances
+  Future<RequestBalanceResult> processQueuedRequestBalancesManually() async {
+    if (!isLoggedIn || _currentUser == null) {
+      return RequestBalanceResult(
+        success: false,
+        message: 'User not logged in',
+        request: null,
+      );
+    }
+
+    try {
+      final pendingRequests = await _databaseHelper.getPendingRequestBalances();
+
+      if (pendingRequests.isEmpty) {
+        return RequestBalanceResult(
+          success: true,
+          message: 'No pending request balances',
+          request: null,
+        );
+      }
+
+      await _apiService.initialize();
+      int processedCount = 0;
+
+      for (final request in pendingRequests) {
+        try {
+          final apiPayload = request.toApiPayload();
+          final syncSuccess = await _apiService.syncRequestBalance(apiPayload);
+
+          if (syncSuccess) {
+            await _databaseHelper.updateRequestBalanceStatus(
+              request.id!,
+              RequestBalanceStatus.synced,
+              syncedAt: DateTime.now(),
+            );
+            processedCount++;
+          } else {
+            await _databaseHelper.updateRequestBalanceStatus(
+              request.id!,
+              RequestBalanceStatus.failed,
+              errorMessage: 'Manual sync failed',
+            );
+          }
+        } catch (e) {
+          await _databaseHelper.updateRequestBalanceStatus(
+            request.id!,
+            RequestBalanceStatus.failed,
+            errorMessage: e.toString(),
+          );
+        }
+      }
+
+      return RequestBalanceResult(
+        success: processedCount > 0,
+        message: '$processedCount requests processed successfully',
+        request: null,
+      );
+    } catch (e) {
+      print('Error processing queued request balances: $e');
+      return RequestBalanceResult(
+        success: false,
+        message: 'Processing failed: $e',
+        request: null,
+      );
+    }
+  }
+
+  // ===== END CASHBOOK DOWNLOAD MANAGEMENT METHODS =====
 }
 
 /// Result object for login operations
@@ -2677,5 +4014,119 @@ class ExpenseSyncResult {
   @override
   String toString() {
     return 'ExpenseSyncResult{success: $success, message: $message, syncedCount: $syncedCount, failedCount: $failedCount}';
+  }
+}
+
+/// Result object for petty cash operations
+class PettyCashResult {
+  final bool success;
+  final String message;
+  final PettyCash? pettyCash;
+
+  PettyCashResult({
+    required this.success,
+    required this.message,
+    this.pettyCash,
+  });
+
+  @override
+  String toString() {
+    return 'PettyCashResult{success: $success, message: $message}';
+  }
+}
+
+/// Result object for petty cash sync operations
+class PettyCashSyncResult {
+  final bool success;
+  final String message;
+  final int syncedCount;
+  final int failedCount;
+
+  PettyCashSyncResult({
+    required this.success,
+    required this.message,
+    required this.syncedCount,
+    required this.failedCount,
+  });
+
+  @override
+  String toString() {
+    return 'PettyCashSyncResult{success: $success, message: $message, syncedCount: $syncedCount, failedCount: $failedCount}';
+  }
+}
+
+/// Result object for cash count operations
+class CashCountResult {
+  final bool success;
+  final String message;
+  final CashCount? cashCount;
+
+  CashCountResult({
+    required this.success,
+    required this.message,
+    this.cashCount,
+  });
+
+  @override
+  String toString() {
+    return 'CashCountResult{success: $success, message: $message}';
+  }
+}
+
+/// Result object for cash count sync operations
+class CashCountSyncResult {
+  final bool success;
+  final String message;
+  final int syncedCount;
+  final int failedCount;
+
+  CashCountSyncResult({
+    required this.success,
+    required this.message,
+    required this.syncedCount,
+    required this.failedCount,
+  });
+
+  @override
+  String toString() {
+    return 'CashCountSyncResult{success: $success, message: $message, syncedCount: $syncedCount, failedCount: $failedCount}';
+  }
+}
+
+/// Result object for cashbook download operations
+class CashbookDownloadResult {
+  final bool success;
+  final String message;
+  final CashbookDownload? download;
+
+  CashbookDownloadResult({
+    required this.success,
+    required this.message,
+    this.download,
+  });
+
+  @override
+  String toString() {
+    return 'CashbookDownloadResult{success: $success, message: $message}';
+  }
+}
+
+/// Result object for cashbook download sync operations
+class CashbookDownloadSyncResult {
+  final bool success;
+  final String message;
+  final int completedCount;
+  final int failedCount;
+
+  CashbookDownloadSyncResult({
+    required this.success,
+    required this.message,
+    required this.completedCount,
+    required this.failedCount,
+  });
+
+  @override
+  String toString() {
+    return 'CashbookDownloadSyncResult{success: $success, message: $message, completedCount: $completedCount, failedCount: $failedCount}';
   }
 }

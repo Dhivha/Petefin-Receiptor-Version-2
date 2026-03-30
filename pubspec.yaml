@@ -54,6 +54,15 @@ dependencies:
   # URL launcher for external apps
   url_launcher: ^6.0.0
   
+  # File sharing
+  share_plus: ^10.0.3
+  
+  # File opening
+  open_file: ^3.3.2
+  
+  # Path provider for file storage
+  path_provider: ^2.1.5
+  
   # Bluetooth functionality (for printer connection)
   flutter_blue_plus: ^1.36.1
   

@@ -701,4 +701,168 @@ class ApiService {
       return false;
     }
   }
+
+  // ===== PETTY CASH METHODS =====
+
+  /// Submit fund petty cash
+  Future<http.Response> fundPettyCash(Map<String, dynamic> pettyCashData) async {
+    try {
+      final response = await post(
+        '/api/FundPettyCash',
+        body: json.encode(pettyCashData),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('Fund petty cash response status: ${response.statusCode}');
+      print('Fund petty cash response body: ${response.body}');
+
+      return response;
+    } catch (e) {
+      print('Fund petty cash error: $e');
+      rethrow;
+    }
+  }
+
+  /// Background sync for petty cash - returns true if successful
+  Future<bool> syncPettyCash(Map<String, dynamic> pettyCashData) async {
+    try {
+      final response = await fundPettyCash(pettyCashData);
+      
+      bool isSuccess = response.statusCode >= 200 && response.statusCode < 300;
+      if (isSuccess) {
+        print('Petty cash sync successful');
+      } else {
+        print('Petty cash sync failed - Status: ${response.statusCode}');
+      }
+      
+      return isSuccess;
+    } catch (e) {
+      print('Background sync failed for petty cash: $e');
+      return false;
+    }
+  }
+
+  // ===== CASH COUNT METHODS =====
+
+  /// Submit daily cash count
+  Future<http.Response> captureDailyCashCount(Map<String, dynamic> cashCountData) async {
+    try {
+      final response = await post(
+        '/api/CashCount/capture-daily-cash-count',
+        body: json.encode(cashCountData),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('Capture cash count response status: ${response.statusCode}');
+      print('Capture cash count response body: ${response.body}');
+
+      return response;
+    } catch (e) {
+      print('Capture cash count error: $e');
+      rethrow;
+    }
+  }
+
+  /// Background sync for cash count - returns true if successful
+  Future<bool> syncCashCount(Map<String, dynamic> cashCountData) async {
+    try {
+      final response = await captureDailyCashCount(cashCountData);
+      
+      bool isSuccess = response.statusCode >= 200 && response.statusCode < 300;
+      if (isSuccess) {
+        print('Cash count sync successful');
+      } else {
+        print('Cash count sync failed - Status: ${response.statusCode}');
+      }
+      
+      return isSuccess;
+    } catch (e) {
+      print('Background sync failed for cash count: $e');
+      return false;
+    }
+  }
+
+  // ===== CASHBOOK DOWNLOAD METHODS =====
+
+  /// Download cashbook document
+  Future<http.Response> downloadCashbookDocument(Map<String, dynamic> requestData) async {
+    try {
+      final response = await post(
+        '/api/DownloadCashbookDocument/download',
+        body: json.encode(requestData),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('Download cashbook response status: ${response.statusCode}');
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        print('Download cashbook successful - Content length: ${response.contentLength}');
+      } else {
+        print('Download cashbook response body: ${response.body}');
+      }
+
+      return response;
+    } catch (e) {
+      print('Download cashbook error: $e');
+      rethrow;
+    }
+  }
+
+  /// Background download for cashbook - returns file bytes if successful
+  Future<List<int>?> downloadCashbook(Map<String, dynamic> requestData) async {
+    try {
+      final response = await downloadCashbookDocument(requestData);
+      
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        print('Cashbook download successful');
+        return response.bodyBytes;
+      } else {
+        print('Cashbook download failed - Status: ${response.statusCode}');
+        print('Response: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('Background download failed for cashbook: $e');
+      return null;
+    }
+  }
+
+  // ===== REQUEST BALANCE METHODS =====
+
+  /// Submit request balance
+  Future<http.Response> requestBalance(Map<String, dynamic> requestData) async {
+    try {
+      final response = await post(
+        '/api/RequestBalance/request-balance',
+        body: json.encode(requestData),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      print('Request balance response status: ${response.statusCode}');
+      print('Request balance response body: ${response.body}');
+
+      return response;
+    } catch (e) {
+      print('Request balance error: $e');
+      rethrow;
+    }
+  }
+
+  /// Background sync for request balance - returns true if successful
+  Future<bool> syncRequestBalance(Map<String, dynamic> requestData) async {
+    try {
+      final response = await requestBalance(requestData);
+      
+      bool isSuccess = response.statusCode >= 200 && response.statusCode < 300;
+      if (isSuccess) {
+        print('Request balance sync successful');
+      } else {
+        print('Request balance sync failed - Status: ${response.statusCode}');
+      }
+      
+      return isSuccess;
+    } catch (e) {
+      print('Background sync failed for request balance: $e');
+      return false;
+    }
+  }
 }
