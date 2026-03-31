@@ -1247,6 +1247,96 @@ class ApiService {
     }
   }
 
+  // ===== FILE DOWNLOAD METHODS (NO TIMEOUT) =====
+
+  /// GET request for file downloads — no timeout, streams full response
+  Future<http.Response> getFile(String endpoint) async {
+    await initialize();
+    if (!await _checkConnectivity()) {
+      throw Exception('No internet connection available');
+    }
+    final url = '$_currentUrl$endpoint';
+    try {
+      print('Making file download request to: $url');
+      final client = http.Client();
+      try {
+        final request = http.Request('GET', Uri.parse(url));
+        request.headers['Content-Type'] = 'application/json';
+        final streamed = await client.send(request);
+        final response = await http.Response.fromStream(streamed);
+        if (response.statusCode >= 200 && response.statusCode < 300) return response;
+        if (response.statusCode >= 500) throw HttpException('Server error: ${response.statusCode}');
+        return response;
+      } finally {
+        client.close();
+      }
+    } on SocketException catch (e) {
+      print('Network error on file download: $e');
+      await _markCurrentUrlAsFailed();
+      return _retryGetFile(endpoint);
+    } on HttpException catch (e) {
+      print('HTTP error on file download: $e');
+      await _markCurrentUrlAsFailed();
+      return _retryGetFile(endpoint);
+    } catch (e) {
+      print('Unexpected error on file download: $e');
+      await _markCurrentUrlAsFailed();
+      return _retryGetFile(endpoint);
+    }
+  }
+
+  Future<http.Response> _retryGetFile(String endpoint) async {
+    try {
+      final url = '$_currentUrl$endpoint';
+      final client = http.Client();
+      try {
+        final request = http.Request('GET', Uri.parse(url));
+        request.headers['Content-Type'] = 'application/json';
+        final streamed = await client.send(request);
+        return await http.Response.fromStream(streamed);
+      } finally {
+        client.close();
+      }
+    } catch (e) {
+      throw Exception('Both API endpoints are currently unavailable. Please try again later.');
+    }
+  }
+
+  /// Download Branch Loan Book (Excel)
+  Future<http.Response> downloadLoanBook(String branch) async {
+    return getFile('/api/MemberStatement/download-branch-loan-book-excel?branch=${Uri.encodeComponent(branch)}');
+  }
+
+  /// Download Reminder PDF
+  Future<http.Response> downloadReminderPdf(String branchName, String targetDate) async {
+    return getFile('/api/ForceTest/TestReminderPdf/${Uri.encodeComponent(branchName)}?targetDate=${Uri.encodeComponent(targetDate)}');
+  }
+
+  /// Download Defaulters Report (PDF)
+  Future<http.Response> downloadDefaultersReport(String branchName, String targetDate) async {
+    return getFile('/api/PreciseDefault/download-amount-based-report?branchName=${Uri.encodeComponent(branchName)}&targetDate=${Uri.encodeComponent(targetDate)}');
+  }
+
+  /// Download Loan Book Analysis (Excel) — Accounts/Management only
+  Future<http.Response> downloadLoanBookAnalysis(String targetDate) async {
+    return getFile('/api/LoanBookAnalysis/GenerateLoanBookAnalysis?targetDate=${Uri.encodeComponent(targetDate)}');
+  }
+
+  /// Download Consolidated Income by Branch (Excel) — Accounts/Management only
+  Future<http.Response> downloadConsolidatedBranch(String startDate, String endDate) async {
+    return getFile('/api/ConsolidatedClassBranch/DownloadAllBranchesConsolidatedIncome?startDate=${Uri.encodeComponent(startDate)}&endDate=${Uri.encodeComponent(endDate)}');
+  }
+
+  /// Download Consolidated Income by Day (Excel) — Accounts/Management only
+  Future<http.Response> downloadConsolidatedDay(String startDate, String endDate) async {
+    return getFile('/api/ConsolidatedClassDay/DownloadConsolidatedDay?startDate=${Uri.encodeComponent(startDate)}&endDate=${Uri.encodeComponent(endDate)}');
+  }
+
+  /// Download Daily Income (Excel) — Accounts/Management only
+  Future<http.Response> downloadDailyIncome(String startDate, String endDate) async {
+    return getFile('/api/DailyIncome/DownloadDailyIncome?startDate=${Uri.encodeComponent(startDate)}&endDate=${Uri.encodeComponent(endDate)}');
+  }
+
   /// Retry collateral submission (only once)
   Future<http.Response> _retryCollateralSubmission({
     required String clientId,

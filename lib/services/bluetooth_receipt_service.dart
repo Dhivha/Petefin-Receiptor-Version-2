@@ -56,7 +56,7 @@ class BluetoothReceiptService {
     final now = DateTime.now();
 
     return {
-      'header': 'PETEFIN RECEIPTOR',
+      'header': 'PETEFIN MICROFINANCE',
       'subheader': 'REPAYMENT RECEIPT',
       'receiptNumber': repayment.receiptNumber,
       'date': '${now.day}/${now.month}/${now.year}',

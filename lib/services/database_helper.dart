@@ -15,11 +15,11 @@ import '../models/petty_cash.dart';
 import '../models/cash_count.dart';
 import '../models/request_balance.dart';
 import '../models/cashbook_download.dart';
+import '../models/branch_download.dart';
 
 class DatabaseHelper {
   static const String _databaseName = "PetefinDb.db";
-  static const int _databaseVersion =
-      16; // Updated for API payload fixes - added missing fields
+  static const int _databaseVersion = 17; // v17: branch_downloads table
 
   // Table names
   static const String _userTable = 'users';
@@ -41,6 +41,7 @@ class DatabaseHelper {
   static const String _cashCountTable = 'cash_count';
   static const String _cashbookDownloadsTable = 'cashbook_downloads';
   static const String _requestBalanceTable = 'request_balance';
+  static const String _branchDownloadsTable = 'branch_downloads';
 
   // Singleton pattern
   static DatabaseHelper? _instance;
@@ -62,7 +63,7 @@ class DatabaseHelper {
     String path = join(await getDatabasesPath(), _databaseName);
     return await openDatabase(
       path,
-      version: 15, // Updated for collateral submissions
+      version: _databaseVersion,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -583,6 +584,29 @@ class DatabaseHelper {
     );
     await db.execute(
       'CREATE INDEX idx_queued_collateral_submissions_sync_status ON $_queuedCollateralSubmissionsTable(syncStatus)',
+    );
+
+    // Create branch_downloads table - version 17
+    await db.execute('''
+      CREATE TABLE $_branchDownloadsTable (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        downloadType TEXT NOT NULL,
+        displayTitle TEXT NOT NULL,
+        parametersSummary TEXT NOT NULL,
+        status INTEGER NOT NULL DEFAULT 0,
+        filePath TEXT,
+        fileType TEXT NOT NULL DEFAULT 'pdf',
+        requestedAt INTEGER NOT NULL,
+        completedAt INTEGER,
+        errorMessage TEXT,
+        expiresAt INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX idx_branch_downloads_type ON $_branchDownloadsTable(downloadType)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_branch_downloads_expires ON $_branchDownloadsTable(expiresAt)',
     );
   }
 
@@ -1141,8 +1165,32 @@ class DatabaseHelper {
     }
 
     if (oldVersion < 16) {
-      // Version 16: no-op, branchName was added and removed
-      // ALTER TABLE is a no-op on devices that already have the correct schema
+      // Version 16: no-op
+    }
+
+    if (oldVersion < 17) {
+      // Version 17: add branch_downloads table
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS $_branchDownloadsTable (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          downloadType TEXT NOT NULL,
+          displayTitle TEXT NOT NULL,
+          parametersSummary TEXT NOT NULL,
+          status INTEGER NOT NULL DEFAULT 0,
+          filePath TEXT,
+          fileType TEXT NOT NULL DEFAULT 'pdf',
+          requestedAt INTEGER NOT NULL,
+          completedAt INTEGER,
+          errorMessage TEXT,
+          expiresAt INTEGER NOT NULL
+        )
+      ''');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_branch_downloads_type ON $_branchDownloadsTable(downloadType)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_branch_downloads_expires ON $_branchDownloadsTable(expiresAt)',
+      );
     }
   }
 
@@ -3793,5 +3841,93 @@ class DatabaseHelper {
       [status.name],
     );
     return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // BRANCH DOWNLOADS — CRUD
+  // ═══════════════════════════════════════════════════════════════════════
+
+  Future<int> insertBranchDownload(BranchDownload record) async {
+    final db = await database;
+    return await db.insert(_branchDownloadsTable, record.toMap());
+  }
+
+  Future<List<BranchDownload>> getRecentBranchDownloads(
+    String downloadType, {
+    int limit = 5,
+  }) async {
+    final db = await database;
+    final results = await db.query(
+      _branchDownloadsTable,
+      where: 'downloadType = ?',
+      whereArgs: [downloadType],
+      orderBy: 'requestedAt DESC',
+      limit: limit,
+    );
+    return results.map((r) => BranchDownload.fromMap(r)).toList();
+  }
+
+  Future<BranchDownload?> getBranchDownloadById(int id) async {
+    final db = await database;
+    final results = await db.query(
+      _branchDownloadsTable,
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (results.isNotEmpty) return BranchDownload.fromMap(results.first);
+    return null;
+  }
+
+  Future<void> updateBranchDownloadCompleted(
+    int id, {
+    required String filePath,
+  }) async {
+    final db = await database;
+    await db.update(
+      _branchDownloadsTable,
+      {
+        'status': BranchDownloadStatus.completed.index,
+        'filePath': filePath,
+        'completedAt': DateTime.now().millisecondsSinceEpoch,
+        'errorMessage': null,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> updateBranchDownloadFailed(int id, String errorMessage) async {
+    final db = await database;
+    await db.update(
+      _branchDownloadsTable,
+      {
+        'status': BranchDownloadStatus.failed.index,
+        'errorMessage': errorMessage,
+        'completedAt': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<List<BranchDownload>> getExpiredBranchDownloads() async {
+    final db = await database;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final results = await db.query(
+      _branchDownloadsTable,
+      where: 'expiresAt < ?',
+      whereArgs: [now],
+    );
+    return results.map((r) => BranchDownload.fromMap(r)).toList();
+  }
+
+  Future<void> deleteBranchDownload(int id) async {
+    final db = await database;
+    await db.delete(
+      _branchDownloadsTable,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 }

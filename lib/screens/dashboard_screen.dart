@@ -20,6 +20,7 @@ import 'add_client_screen.dart';
 import 'add_client_image_screen.dart';
 import 'view_client_photo_screen.dart';
 import 'collateral_submission_screen.dart';
+import 'branch_loan_download_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -554,6 +555,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
             },
           ),
           ListTile(
+            leading: const Icon(Icons.cloud_download, color: Colors.blue),
+            title: const Text('Branch Loan Download'),
+            subtitle: const Text('Loan book, reports & analysis downloads'),
+            onTap: () {
+              Navigator.of(context).pop();
+              _navigateToBranchLoanDownload();
+            },
+          ),
+          ListTile(
             leading: const Icon(Icons.request_quote, color: Colors.blue),
             title: const Text('Request Balance'),
             subtitle: const Text('Submit balance requests with approval'),
@@ -692,6 +702,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void _navigateToCashbookDownload() {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (context) => ManageCashbookDownloadScreen()),
+    );
+  }
+
+  void _navigateToBranchLoanDownload() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (context) => const BranchLoanDownloadScreen()),
     );
   }
 
