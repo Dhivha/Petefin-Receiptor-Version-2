@@ -13,7 +13,7 @@ class _TrackTransfersScreenState extends State<TrackTransfersScreen>
     with SingleTickerProviderStateMixin {
   final AuthService _authService = AuthService();
   late TabController _tabController;
-  
+
   List<Transfer> _queuedTransfers = [];
   List<Transfer> _syncedTransfers = [];
   bool _isLoading = true;
@@ -34,7 +34,7 @@ class _TrackTransfersScreenState extends State<TrackTransfersScreen>
 
   Future<void> _loadTransfers() async {
     if (!mounted) return;
-    
+
     setState(() {
       _isLoading = true;
     });
@@ -42,7 +42,7 @@ class _TrackTransfersScreenState extends State<TrackTransfersScreen>
     try {
       final queued = await _authService.getQueuedTransfers();
       final synced = await _authService.getSyncedTransfers();
-      
+
       if (mounted) {
         setState(() {
           _queuedTransfers = queued;
@@ -80,7 +80,7 @@ class _TrackTransfersScreenState extends State<TrackTransfersScreen>
 
     try {
       final result = await _authService.deleteQueuedTransfer(transfer.id!);
-      
+
       if (mounted) {
         setState(() {
           _isDeletingTransfer = false;
@@ -120,75 +120,73 @@ class _TrackTransfersScreenState extends State<TrackTransfersScreen>
 
   Future<bool> _showDeleteConfirmationDialog(Transfer transfer) async {
     return await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Transfer'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Are you sure you want to delete this transfer?'),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${transfer.typeDisplayName}',
-                    style: const TextStyle(fontWeight: FontWeight.w500),
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: const Text('Delete Transfer'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Are you sure you want to delete this transfer?'),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  Text(transfer.formattedAmount),
-                  Text('To: ${transfer.receivingBranch}'),
-                  Text('Date: ${transfer.formattedDate}'),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.red[50],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.red[200]!),
-              ),
-              child: const Text(
-                'This action cannot be undone. The transfer will be permanently removed.',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.black87,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${transfer.typeDisplayName}',
+                        style: const TextStyle(fontWeight: FontWeight.w500),
+                      ),
+                      Text(transfer.formattedAmount),
+                      Text('To: ${transfer.receivingBranch}'),
+                      Text('Date: ${transfer.formattedDate}'),
+                    ],
+                  ),
                 ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.red[200]!),
+                  ),
+                  child: const Text(
+                    'This action cannot be undone. The transfer will be permanently removed.',
+                    style: TextStyle(fontSize: 12, color: Colors.black87),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('CANCEL'),
               ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('CANCEL'),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('DELETE'),
+              ),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('DELETE'),
-          ),
-        ],
-      ),
-    ) ?? false;
+        ) ??
+        false;
   }
 
   Future<void> _syncTransfers() async {
     try {
       final result = await _authService.syncQueuedTransfers();
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -196,7 +194,7 @@ class _TrackTransfersScreenState extends State<TrackTransfersScreen>
             backgroundColor: result.success ? Colors.green : Colors.orange,
           ),
         );
-        
+
         if (result.syncedCount > 0) {
           await _refreshTransfers();
         }
@@ -323,11 +321,7 @@ class _TrackTransfersScreenState extends State<TrackTransfersScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              icon,
-              size: 64,
-              color: Colors.grey[400],
-            ),
+            Icon(icon, size: 64, color: Colors.grey[400]),
             const SizedBox(height: 16),
             Text(
               title,
@@ -341,10 +335,7 @@ class _TrackTransfersScreenState extends State<TrackTransfersScreen>
             Text(
               subtitle,
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[500],
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey[500]),
             ),
           ],
         ),
@@ -361,7 +352,7 @@ class _TrackTransfersScreenState extends State<TrackTransfersScreen>
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: isExpired 
+        border: isExpired
             ? Border.all(color: Colors.red[300]!, width: 2)
             : Border.all(color: Colors.orange[300]!),
         boxShadow: [
@@ -380,7 +371,10 @@ class _TrackTransfersScreenState extends State<TrackTransfersScreen>
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: isExpired ? Colors.red[100] : Colors.orange[100],
                     borderRadius: BorderRadius.circular(6),
@@ -441,11 +435,15 @@ class _TrackTransfersScreenState extends State<TrackTransfersScreen>
             ),
             const SizedBox(height: 8),
             _buildTransferDetailRow(Icons.send, 'To', transfer.receivingBranch),
-            _buildTransferDetailRow(Icons.date_range, 'Date', transfer.formattedDate),
             _buildTransferDetailRow(
-              Icons.access_time, 
-              'Created', 
-              _getTimeAgo(transfer.createdAt)
+              Icons.date_range,
+              'Date',
+              transfer.formattedDate,
+            ),
+            _buildTransferDetailRow(
+              Icons.access_time,
+              'Created',
+              _getTimeAgo(transfer.createdAt),
             ),
             if (isExpired) ...[
               const SizedBox(height: 8),
@@ -462,10 +460,7 @@ class _TrackTransfersScreenState extends State<TrackTransfersScreen>
                     Expanded(
                       child: Text(
                         'This transfer has expired (>24 hours) and will be automatically removed.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.red,
-                        ),
+                        style: TextStyle(fontSize: 12, color: Colors.red),
                       ),
                     ),
                   ],
@@ -479,7 +474,9 @@ class _TrackTransfersScreenState extends State<TrackTransfersScreen>
   }
 
   Widget _buildSyncedTransferCard(Transfer transfer) {
-    final syncedTime = transfer.syncedAt != null ? _getTimeAgo(transfer.syncedAt!) : 'Unknown';
+    final syncedTime = transfer.syncedAt != null
+        ? _getTimeAgo(transfer.syncedAt!)
+        : 'Unknown';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -503,7 +500,10 @@ class _TrackTransfersScreenState extends State<TrackTransfersScreen>
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.green[100],
                     borderRadius: BorderRadius.circular(6),
@@ -553,9 +553,14 @@ class _TrackTransfersScreenState extends State<TrackTransfersScreen>
             ),
             const SizedBox(height: 8),
             _buildTransferDetailRow(Icons.send, 'To', transfer.receivingBranch),
-            _buildTransferDetailRow(Icons.date_range, 'Date', transfer.formattedDate),
+            _buildTransferDetailRow(
+              Icons.date_range,
+              'Date',
+              transfer.formattedDate,
+            ),
             _buildTransferDetailRow(Icons.cloud_done, 'Synced', syncedTime),
-            if (transfer.narration != null && transfer.narration!.isNotEmpty) ...[
+            if (transfer.narration != null &&
+                transfer.narration!.isNotEmpty) ...[
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.all(8),
@@ -571,10 +576,7 @@ class _TrackTransfersScreenState extends State<TrackTransfersScreen>
                     Expanded(
                       child: Text(
                         transfer.narration!,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.blue[800],
-                        ),
+                        style: TextStyle(fontSize: 12, color: Colors.blue[800]),
                       ),
                     ),
                   ],
@@ -596,18 +598,12 @@ class _TrackTransfersScreenState extends State<TrackTransfersScreen>
           const SizedBox(width: 8),
           Text(
             '$label: ',
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
-            ),
+            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Colors.black87,
-              ),
+              style: const TextStyle(fontSize: 12, color: Colors.black87),
             ),
           ),
         ],

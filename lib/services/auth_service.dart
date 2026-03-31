@@ -45,7 +45,7 @@ class AuthService {
     try {
       _currentUser = await _databaseHelper.getUser();
       print('AuthService initialized. User logged in: ${isLoggedIn}');
-      
+
       // Start background sync timer if user is logged in
       if (isLoggedIn) {
         _startBackgroundSync();
@@ -86,7 +86,7 @@ class AuthService {
           _currentUser = user;
 
           print('Login successful for user: ${user.fullName}');
-          
+
           // Start background sync for offline-first functionality
           _startBackgroundSync();
 
@@ -131,7 +131,7 @@ class AuthService {
     try {
       // Stop background sync timer
       _stopBackgroundSync();
-      
+
       // Clear user from database
       await _databaseHelper.deleteUser();
 
@@ -586,9 +586,11 @@ class AuthService {
   }
 
   // Receipt Number operations
-  
+
   /// Sync receipt numbers from server
-  Future<ReceiptNumberSyncResult> syncReceiptNumbers({bool forceRefresh = false}) async {
+  Future<ReceiptNumberSyncResult> syncReceiptNumbers({
+    bool forceRefresh = false,
+  }) async {
     if (_currentUser == null) {
       return ReceiptNumberSyncResult(
         success: false,
@@ -600,46 +602,56 @@ class AuthService {
 
     try {
       await _apiService.initialize();
-      
+
       // Get existing receipt numbers count
       final existingCount = await _databaseHelper.getTotalReceiptNumbersCount();
-      
-      print('🔄 Syncing receipt numbers for branch: ${_currentUser!.branch}, userId: ${_currentUser!.currentUserId}...');
-      
+
+      print(
+        '🔄 Syncing receipt numbers for branch: ${_currentUser!.branch}, userId: ${_currentUser!.currentUserId}...',
+      );
+
       // Call API to get receipt numbers
-      final response = await _apiService.loadReceiptNumbers(_currentUser!.branch, _currentUser!.currentUserId);
-      
+      final response = await _apiService.loadReceiptNumbers(
+        _currentUser!.branch,
+        _currentUser!.currentUserId,
+      );
+
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final List<dynamic> jsonResponse = json.decode(response.body);
-        
+
         // Parse receipt numbers from API
         final List<ReceiptNumber> apiReceiptNumbers = jsonResponse
             .map((json) => ReceiptNumber.fromApiJson(json))
             .toList();
-        
+
         if (forceRefresh) {
           // Clear existing and insert all
           await _databaseHelper.deleteAllReceiptNumbers();
           await _databaseHelper.insertMultipleReceiptNumbers(apiReceiptNumbers);
         } else {
           // Find new additions only
-          final existingReceiptNumbers = await _databaseHelper.getAllReceiptNumbers();
+          final existingReceiptNumbers = await _databaseHelper
+              .getAllReceiptNumbers();
           final existingIds = existingReceiptNumbers.map((r) => r.id).toSet();
-          
+
           final newReceiptNumbers = apiReceiptNumbers
               .where((r) => !existingIds.contains(r.id))
               .toList();
-          
+
           if (newReceiptNumbers.isNotEmpty) {
-            await _databaseHelper.insertMultipleReceiptNumbers(newReceiptNumbers);
+            await _databaseHelper.insertMultipleReceiptNumbers(
+              newReceiptNumbers,
+            );
           }
         }
-        
+
         final newCount = await _databaseHelper.getTotalReceiptNumbersCount();
         final addedCount = newCount - (forceRefresh ? 0 : existingCount);
-        
-        print('✅ Receipt numbers sync successful: $addedCount new, $newCount total');
-        
+
+        print(
+          '✅ Receipt numbers sync successful: $addedCount new, $newCount total',
+        );
+
         return ReceiptNumberSyncResult(
           success: true,
           message: 'Receipt numbers synced successfully',
@@ -648,12 +660,15 @@ class AuthService {
           receiptNumbers: apiReceiptNumbers,
         );
       } else {
-        print('❌ Receipt numbers sync failed: ${response.statusCode} - ${response.body}');
+        print(
+          '❌ Receipt numbers sync failed: ${response.statusCode} - ${response.body}',
+        );
         return ReceiptNumberSyncResult(
           success: false,
           message: 'Failed to sync receipt numbers: ${response.statusCode}',
           newReceiptNumbers: 0,
-          totalReceiptNumbers: await _databaseHelper.getTotalReceiptNumbersCount(),
+          totalReceiptNumbers: await _databaseHelper
+              .getTotalReceiptNumbersCount(),
         );
       }
     } catch (e) {
@@ -662,21 +677,22 @@ class AuthService {
         success: false,
         message: 'Receipt numbers sync failed: $e',
         newReceiptNumbers: 0,
-        totalReceiptNumbers: await _databaseHelper.getTotalReceiptNumbersCount(),
+        totalReceiptNumbers: await _databaseHelper
+            .getTotalReceiptNumbersCount(),
       );
     }
   }
-  
+
   /// Get unused receipt numbers
   Future<List<ReceiptNumber>> getUnusedReceiptNumbers() async {
     return await _databaseHelper.getUnusedReceiptNumbers();
   }
-  
+
   /// Get used receipt numbers
   Future<List<ReceiptNumber>> getUsedReceiptNumbers() async {
     return await _databaseHelper.getUsedReceiptNumbers();
   }
-  
+
   /// Mark receipt number as used by receipt number string
   Future<bool> markReceiptNumberAsUsed(String receiptNum) async {
     try {
@@ -686,7 +702,7 @@ class AuthService {
         (receipt) => receipt.receiptNum == receiptNum,
         orElse: () => throw Exception('Receipt number not found: $receiptNum'),
       );
-      
+
       // Mark it as used
       await _databaseHelper.markReceiptNumberAsUsed(
         targetReceipt.id,
@@ -695,14 +711,14 @@ class AuthService {
         amount: 0.0,
         currency: 'USD',
       );
-      
+
       return true;
     } catch (e) {
       print('Error marking receipt number as used: $e');
       return false;
     }
   }
-  
+
   /// Get next available receipt number and mark as used
   Future<ReceiptNumber?> getAndUseNextReceiptNumber({
     required String clientId,
@@ -710,8 +726,9 @@ class AuthService {
     required double amount,
     required String currency,
   }) async {
-    final nextReceiptNumber = await _databaseHelper.getNextUnusedReceiptNumber();
-    
+    final nextReceiptNumber = await _databaseHelper
+        .getNextUnusedReceiptNumber();
+
     if (nextReceiptNumber != null) {
       await _databaseHelper.markReceiptNumberAsUsed(
         nextReceiptNumber.id,
@@ -720,24 +737,24 @@ class AuthService {
         amount: amount,
         currency: currency,
       );
-      
+
       // Return the updated receipt number
       return await _databaseHelper.getReceiptNumberById(nextReceiptNumber.id);
     }
-    
+
     return null;
   }
-  
+
   /// Search receipt numbers
   Future<List<ReceiptNumber>> searchReceiptNumbers(String query) async {
     return await _databaseHelper.searchReceiptNumbers(query);
   }
-  
+
   /// Get receipt numbers stats
   Future<Map<String, int>> getReceiptNumbersStats() async {
     return await _databaseHelper.getReceiptNumbersStats();
   }
-  
+
   /// Modified repayment creation to use receipt numbers
   Future<RepaymentResult> createRepaymentWithReceiptNumber({
     required int disbursementId,
@@ -765,11 +782,12 @@ class AuthService {
         amount: amount,
         currency: currency,
       );
-      
+
       if (receiptNumber == null) {
         return RepaymentResult(
           success: false,
-          message: 'No unused receipt numbers available. Please sync receipt numbers first.',
+          message:
+              'No unused receipt numbers available. Please sync receipt numbers first.',
           receiptNumber: null,
         );
       }
@@ -792,7 +810,9 @@ class AuthService {
       // Store locally
       await _databaseHelper.insertRepayment(repayment);
 
-      print('✅ Repayment created with system receipt number: ${receiptNumber.receiptNum} for $currency $amount');
+      print(
+        '✅ Repayment created with system receipt number: ${receiptNumber.receiptNum} for $currency $amount',
+      );
 
       // Try to sync immediately
       Future.delayed(const Duration(milliseconds: 500), () {
@@ -823,15 +843,12 @@ class AuthService {
     required String reason,
   }) async {
     if (_currentUser == null) {
-      return CancellationResult(
-        success: false,
-        message: 'User not logged in',
-      );
+      return CancellationResult(success: false, message: 'User not logged in');
     }
 
     try {
       await _apiService.initialize();
-      
+
       // Build cancellation payload according to API spec
       final cancellationData = {
         'ClientId': repayment.clientId,
@@ -844,18 +861,19 @@ class AuthService {
       };
 
       print('🔄 Cancelling repayment: ${repayment.receiptNumber}...');
-      
+
       // Call API to cancel repayment
       final response = await _apiService.cancelRepayment(cancellationData);
-      
+
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final responseData = json.decode(response.body);
-        
+
         print('✅ Repayment cancelled successfully: ${repayment.receiptNumber}');
-        
+
         return CancellationResult(
           success: true,
-          message: responseData['message'] ?? 'Repayment cancelled successfully',
+          message:
+              responseData['message'] ?? 'Repayment cancelled successfully',
           cancellationId: responseData['cancellationId'],
           smsNotification: responseData['smsNotification'],
         );
@@ -876,10 +894,14 @@ class AuthService {
       } else {
         // Other server errors
         final responseData = json.decode(response.body);
-        print('❌ Failed to cancel repayment: ${response.statusCode} - ${response.body}');
+        print(
+          '❌ Failed to cancel repayment: ${response.statusCode} - ${response.body}',
+        );
         return CancellationResult(
           success: false,
-          message: responseData['message'] ?? 'Failed to cancel repayment: ${response.statusCode}',
+          message:
+              responseData['message'] ??
+              'Failed to cancel repayment: ${response.statusCode}',
         );
       }
     } catch (e) {
@@ -900,19 +922,24 @@ class AuthService {
 
     try {
       await _apiService.initialize();
-      
-      print('🔄 Loading cancelled repayments for branch: ${_currentUser!.branch}...');
-      
-      final response = await _apiService.getCancelledRepayments(_currentUser!.branch);
-      
+
+      print(
+        '🔄 Loading cancelled repayments for branch: ${_currentUser!.branch}...',
+      );
+
+      final response = await _apiService.getCancelledRepayments(
+        _currentUser!.branch,
+      );
+
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final responseData = json.decode(response.body);
-        final List<dynamic> cancelledList = responseData['cancelledRepayments'] ?? [];
-        
+        final List<dynamic> cancelledList =
+            responseData['cancelledRepayments'] ?? [];
+
         final cancelledRepayments = cancelledList
             .map((json) => CancelledRepayment.fromJson(json))
             .toList();
-        
+
         print('✅ Loaded ${cancelledRepayments.length} cancelled repayments');
         return cancelledRepayments;
       } else {
@@ -940,7 +967,7 @@ class AuthService {
 
     try {
       final db = _databaseHelper;
-      
+
       // Get next available receipt number from unused receipts
       final unusedReceipts = await getUnusedReceiptNumbers();
       if (unusedReceipts.isEmpty) {
@@ -950,10 +977,10 @@ class AuthService {
           receiptNumber: '',
         );
       }
-      
+
       final nextReceipt = unusedReceipts.first;
       final receiptNumber = nextReceipt.receiptNum;
-      
+
       // Create penalty fee record
       final penaltyFee = PenaltyFee(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -964,29 +991,28 @@ class AuthService {
         receiptNumber: receiptNumber,
         isSynced: false,
       );
-      
+
       // Save to local database
       await db.insertPenaltyFee(penaltyFee);
-      
+
       // Mark receipt number as used
       await markReceiptNumberAsUsed(receiptNumber);
-      
+
       print('✅ Penalty fee created locally: $receiptNumber');
-      
+
       // Try to sync immediately if online (don't let this fail the penalty fee creation)
       try {
         await _autoSyncPenaltyFees();
       } catch (syncError) {
         print('⚠️ Auto-sync failed, will retry later: $syncError');
       }
-      
+
       return PenaltyFeeResult(
         success: true,
         message: 'Penalty fee recorded successfully',
         receiptNumber: receiptNumber,
         penaltyFee: penaltyFee,
       );
-      
     } catch (e) {
       print('❌ Error creating penalty fee: $e');
       return PenaltyFeeResult(
@@ -1000,43 +1026,56 @@ class AuthService {
   /// Auto-sync penalty fees when internet is available
   Future<void> _autoSyncPenaltyFees() async {
     if (!isLoggedIn) return;
-    
+
     try {
-      final unsyncedPenaltyFees = await _databaseHelper.getUnsyncedPenaltyFees();
+      final unsyncedPenaltyFees = await _databaseHelper
+          .getUnsyncedPenaltyFees();
       if (unsyncedPenaltyFees.isEmpty) return;
 
       await _apiService.initialize();
-      
+
       for (final penaltyFee in unsyncedPenaltyFees) {
         try {
           print('🔄 Auto-syncing penalty fee: ${penaltyFee.receiptNumber}...');
-          
+
           // Step 1: Sync to primary penalty fee endpoint
-          final response = await _apiService.addPenaltyFee(penaltyFee.toApiJson());
-          
+          final response = await _apiService.addPenaltyFee(
+            penaltyFee.toApiJson(),
+          );
+
           if (response.statusCode >= 200 && response.statusCode < 300) {
-            print('✅ Primary penalty fee auto-sync successful: ${penaltyFee.receiptNumber}');
-            
+            print(
+              '✅ Primary penalty fee auto-sync successful: ${penaltyFee.receiptNumber}',
+            );
+
             try {
               // Step 2: Get unused receipt number
-              final unusedReceipt = await _databaseHelper.getNextUnusedReceiptNumber();
-              
+              final unusedReceipt = await _databaseHelper
+                  .getNextUnusedReceiptNumber();
+
               if (unusedReceipt != null) {
-                print('🎫 Auto-sync using receipt number: ${unusedReceipt.receiptNum}');
-                
+                print(
+                  '🎫 Auto-sync using receipt number: ${unusedReceipt.receiptNum}',
+                );
+
                 // Step 3: Sync to final penalty fee endpoint with receipt number
                 final finalPenaltyData = {
                   'Branch': penaltyFee.branch,
                   'Amount': penaltyFee.amount,
-                  'ClientId': 'PEN${penaltyFee.clientName.replaceAll(' ', '').toUpperCase()}',
+                  'ClientId':
+                      'PEN${penaltyFee.clientName.replaceAll(' ', '').toUpperCase()}',
                   'ClientName': penaltyFee.clientName,
-                  'DateTimeCaptured': penaltyFee.dateTimeCaptured.toIso8601String(),
+                  'DateTimeCaptured': penaltyFee.dateTimeCaptured
+                      .toIso8601String(),
                   'ReceiptNumber': unusedReceipt.receiptNum,
                 };
-                
-                final finalResponse = await _apiService.addFinalPenaltyFee(finalPenaltyData);
-                
-                if (finalResponse.statusCode >= 200 && finalResponse.statusCode < 300) {
+
+                final finalResponse = await _apiService.addFinalPenaltyFee(
+                  finalPenaltyData,
+                );
+
+                if (finalResponse.statusCode >= 200 &&
+                    finalResponse.statusCode < 300) {
                   // Step 4: Mark receipt as used and penalty fee as synced
                   await _databaseHelper.markReceiptNumberAsUsed(
                     unusedReceipt.id,
@@ -1046,20 +1085,30 @@ class AuthService {
                     currency: penaltyFee.currency,
                   );
                   await _databaseHelper.markPenaltyFeeAsSynced(penaltyFee.id);
-                  
-                  print('✅ Auto-synced penalty fee with receipt: ${penaltyFee.receiptNumber} → ${unusedReceipt.receiptNum}');
+
+                  print(
+                    '✅ Auto-synced penalty fee with receipt: ${penaltyFee.receiptNumber} → ${unusedReceipt.receiptNum}',
+                  );
                 } else {
-                  print('❌ Failed to auto-sync final penalty fee ${penaltyFee.receiptNumber}: ${finalResponse.statusCode}');
+                  print(
+                    '❌ Failed to auto-sync final penalty fee ${penaltyFee.receiptNumber}: ${finalResponse.statusCode}',
+                  );
                 }
               } else {
-                print('❌ No unused receipt numbers available for auto-sync: ${penaltyFee.receiptNumber}');
+                print(
+                  '❌ No unused receipt numbers available for auto-sync: ${penaltyFee.receiptNumber}',
+                );
               }
             } catch (finalError) {
-              print('❌ Error in final penalty fee auto-sync ${penaltyFee.receiptNumber}: $finalError');
+              print(
+                '❌ Error in final penalty fee auto-sync ${penaltyFee.receiptNumber}: $finalError',
+              );
             }
           }
         } catch (e) {
-          print('❌ Failed to auto-sync penalty fee ${penaltyFee.receiptNumber}: $e');
+          print(
+            '❌ Failed to auto-sync penalty fee ${penaltyFee.receiptNumber}: $e',
+          );
           // Continue with next penalty fee
         }
       }
@@ -1079,8 +1128,9 @@ class AuthService {
     }
 
     try {
-      final unsyncedPenaltyFees = await _databaseHelper.getUnsyncedPenaltyFees();
-      
+      final unsyncedPenaltyFees = await _databaseHelper
+          .getUnsyncedPenaltyFees();
+
       if (unsyncedPenaltyFees.isEmpty) {
         return PenaltySyncResult(
           success: true,
@@ -1091,40 +1141,50 @@ class AuthService {
       }
 
       await _apiService.initialize();
-      
+
       int syncedCount = 0;
       int failedCount = 0;
 
       for (final penaltyFee in unsyncedPenaltyFees) {
         try {
           print('🔄 Syncing penalty fee: ${penaltyFee.receiptNumber}...');
-          
+
           // Step 1: Sync to primary penalty fee endpoint
-          final response = await _apiService.addPenaltyFee(penaltyFee.toApiJson());
-          
+          final response = await _apiService.addPenaltyFee(
+            penaltyFee.toApiJson(),
+          );
+
           if (response.statusCode >= 200 && response.statusCode < 300) {
-            print('✅ Primary penalty fee sync successful: ${penaltyFee.receiptNumber}');
-            
+            print(
+              '✅ Primary penalty fee sync successful: ${penaltyFee.receiptNumber}',
+            );
+
             try {
               // Step 2: Get unused receipt number
-              final unusedReceipt = await _databaseHelper.getNextUnusedReceiptNumber();
-              
+              final unusedReceipt = await _databaseHelper
+                  .getNextUnusedReceiptNumber();
+
               if (unusedReceipt != null) {
                 print('🎫 Using receipt number: ${unusedReceipt.receiptNum}');
-                
+
                 // Step 3: Sync to final penalty fee endpoint with receipt number
                 final finalPenaltyData = {
                   'Branch': penaltyFee.branch,
                   'Amount': penaltyFee.amount,
-                  'ClientId': 'PEN${penaltyFee.clientName.replaceAll(' ', '').toUpperCase()}',
+                  'ClientId':
+                      'PEN${penaltyFee.clientName.replaceAll(' ', '').toUpperCase()}',
                   'ClientName': penaltyFee.clientName,
-                  'DateTimeCaptured': penaltyFee.dateTimeCaptured.toIso8601String(),
+                  'DateTimeCaptured': penaltyFee.dateTimeCaptured
+                      .toIso8601String(),
                   'ReceiptNumber': unusedReceipt.receiptNum,
                 };
-                
-                final finalResponse = await _apiService.addFinalPenaltyFee(finalPenaltyData);
-                
-                if (finalResponse.statusCode >= 200 && finalResponse.statusCode < 300) {
+
+                final finalResponse = await _apiService.addFinalPenaltyFee(
+                  finalPenaltyData,
+                );
+
+                if (finalResponse.statusCode >= 200 &&
+                    finalResponse.statusCode < 300) {
                   // Step 4: Mark receipt as used and penalty fee as synced
                   await _databaseHelper.markReceiptNumberAsUsed(
                     unusedReceipt.id,
@@ -1134,24 +1194,34 @@ class AuthService {
                     currency: penaltyFee.currency,
                   );
                   await _databaseHelper.markPenaltyFeeAsSynced(penaltyFee.id);
-                  
+
                   syncedCount++;
-                  print('✅ Fully synced penalty fee with receipt: ${penaltyFee.receiptNumber} → ${unusedReceipt.receiptNum}');
+                  print(
+                    '✅ Fully synced penalty fee with receipt: ${penaltyFee.receiptNumber} → ${unusedReceipt.receiptNum}',
+                  );
                 } else {
                   failedCount++;
-                  print('❌ Failed to sync final penalty fee ${penaltyFee.receiptNumber}: ${finalResponse.statusCode}');
+                  print(
+                    '❌ Failed to sync final penalty fee ${penaltyFee.receiptNumber}: ${finalResponse.statusCode}',
+                  );
                 }
               } else {
                 failedCount++;
-                print('❌ No unused receipt numbers available for penalty fee: ${penaltyFee.receiptNumber}');
+                print(
+                  '❌ No unused receipt numbers available for penalty fee: ${penaltyFee.receiptNumber}',
+                );
               }
             } catch (finalError) {
               failedCount++;
-              print('❌ Error in final penalty fee sync ${penaltyFee.receiptNumber}: $finalError');
+              print(
+                '❌ Error in final penalty fee sync ${penaltyFee.receiptNumber}: $finalError',
+              );
             }
           } else {
             failedCount++;
-            print('❌ Failed to sync primary penalty fee ${penaltyFee.receiptNumber}: ${response.statusCode}');
+            print(
+              '❌ Failed to sync primary penalty fee ${penaltyFee.receiptNumber}: ${response.statusCode}',
+            );
           }
         } catch (e) {
           failedCount++;
@@ -1160,7 +1230,7 @@ class AuthService {
       }
 
       final success = failedCount == 0;
-      final message = success 
+      final message = success
           ? 'Successfully synced $syncedCount penalty fees'
           : 'Synced $syncedCount penalty fees, $failedCount failed';
 
@@ -1170,7 +1240,6 @@ class AuthService {
         syncedCount: syncedCount,
         failedCount: failedCount,
       );
-
     } catch (e) {
       print('❌ Sync penalty fees error: $e');
       return PenaltySyncResult(
@@ -1207,17 +1276,14 @@ class AuthService {
     required String reason,
   }) async {
     if (_currentUser == null) {
-      return CancellationResult(
-        success: false,
-        message: 'User not logged in',
-      );
+      return CancellationResult(success: false, message: 'User not logged in');
     }
 
     try {
       await _apiService.initialize();
-      
+
       print('🔄 Cancelling penalty fee: ${penaltyFee.receiptNumber}...');
-      
+
       final cancellationData = {
         'Branch': _currentUser!.branch,
         'ReceiptNumber': penaltyFee.receiptNumber,
@@ -1227,23 +1293,26 @@ class AuthService {
         'CancelledBy': _currentUser!.fullName,
         'Reason': reason,
       };
-      
+
       final response = await _apiService.cancelPenaltyReceipt(cancellationData);
-      
+
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final responseData = json.decode(response.body);
-        
+
         // Store cancelled penalty fee locally
         final cancelledPenaltyFee = CancelledPenaltyFee.fromJson(responseData);
         await _databaseHelper.insertCancelledPenaltyFee(cancelledPenaltyFee);
-        
+
         // Remove original penalty fee
         await _databaseHelper.deletePenaltyFee(penaltyFee.id);
-        
-        print('✅ Penalty fee cancelled successfully: ${penaltyFee.receiptNumber}');
+
+        print(
+          '✅ Penalty fee cancelled successfully: ${penaltyFee.receiptNumber}',
+        );
         return CancellationResult(
           success: true,
-          message: responseData['message'] ?? 'Penalty fee cancelled successfully',
+          message:
+              responseData['message'] ?? 'Penalty fee cancelled successfully',
         );
       } else {
         print('❌ Failed to cancel penalty fee: ${response.statusCode}');
@@ -1252,7 +1321,6 @@ class AuthService {
           message: 'Failed to cancel penalty fee',
         );
       }
-      
     } catch (e) {
       print('❌ Error cancelling penalty fee: $e');
       return CancellationResult(
@@ -1264,26 +1332,33 @@ class AuthService {
 
   Future<List<CancelledPenaltyFee>> getCancelledPenaltyFees() async {
     if (!isLoggedIn) return [];
-    
+
     try {
       await _apiService.initialize();
-      
-      print('🔄 Loading cancelled penalty fees for branch: ${_currentUser!.branch}...');
-      
-      final response = await _apiService.getCancelledPenaltyReceipts(_currentUser!.branch);
-      
+
+      print(
+        '🔄 Loading cancelled penalty fees for branch: ${_currentUser!.branch}...',
+      );
+
+      final response = await _apiService.getCancelledPenaltyReceipts(
+        _currentUser!.branch,
+      );
+
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final responseData = json.decode(response.body);
-        final List<dynamic> cancelledList = responseData['cancelledPenaltyReceipts'] ?? [];
-        
+        final List<dynamic> cancelledList =
+            responseData['cancelledPenaltyReceipts'] ?? [];
+
         final cancelledPenaltyFees = cancelledList
             .map((json) => CancelledPenaltyFee.fromJson(json))
             .toList();
-        
+
         print('✅ Loaded ${cancelledPenaltyFees.length} cancelled penalty fees');
         return cancelledPenaltyFees;
       } else {
-        print('❌ Failed to load cancelled penalty fees: ${response.statusCode}');
+        print(
+          '❌ Failed to load cancelled penalty fees: ${response.statusCode}',
+        );
         return [];
       }
     } catch (e) {
@@ -1301,7 +1376,7 @@ class AuthService {
   }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      
+
       final cancellationData = {
         'receiptNumber': receiptNumber,
         'receiptType': receiptType,
@@ -1310,9 +1385,10 @@ class AuthService {
         'timestamp': DateTime.now().toIso8601String(),
       };
 
-      final existingCancellations = prefs.getStringList('pending_cancellations') ?? [];
+      final existingCancellations =
+          prefs.getStringList('pending_cancellations') ?? [];
       existingCancellations.add(json.encode(cancellationData));
-      
+
       await prefs.setStringList('pending_cancellations', existingCancellations);
       print('📱 Stored cancellation locally: $receiptNumber');
     } catch (e) {
@@ -1324,27 +1400,36 @@ class AuthService {
   Future<void> syncPendingCancellations() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final pendingCancellations = prefs.getStringList('pending_cancellations') ?? [];
-      
+      final pendingCancellations =
+          prefs.getStringList('pending_cancellations') ?? [];
+
       if (pendingCancellations.isEmpty) {
         print('📱 No pending cancellations to sync');
         return;
       }
 
-      print('🔄 Syncing ${pendingCancellations.length} pending cancellations...');
-      
+      print(
+        '🔄 Syncing ${pendingCancellations.length} pending cancellations...',
+      );
+
       final List<String> remainingCancellations = [];
-      
+
       for (final cancellationJson in pendingCancellations) {
         try {
           final cancellationData = json.decode(cancellationJson);
-          
-          final response = await _apiService.postCancelledAdminReceipt(cancellationData);
-          
+
+          final response = await _apiService.postCancelledAdminReceipt(
+            cancellationData,
+          );
+
           if (response.statusCode >= 200 && response.statusCode < 300) {
-            print('✅ Synced cancellation: ${cancellationData['receiptNumber']}');
+            print(
+              '✅ Synced cancellation: ${cancellationData['receiptNumber']}',
+            );
           } else {
-            print('❌ Failed to sync cancellation: ${cancellationData['receiptNumber']}');
+            print(
+              '❌ Failed to sync cancellation: ${cancellationData['receiptNumber']}',
+            );
             remainingCancellations.add(cancellationJson);
           }
         } catch (e) {
@@ -1352,11 +1437,16 @@ class AuthService {
           remainingCancellations.add(cancellationJson);
         }
       }
-      
+
       // Update the pending list with only the ones that failed
-      await prefs.setStringList('pending_cancellations', remainingCancellations);
-      
-      print('📱 Sync complete. ${remainingCancellations.length} cancellations remain pending.');
+      await prefs.setStringList(
+        'pending_cancellations',
+        remainingCancellations,
+      );
+
+      print(
+        '📱 Sync complete. ${remainingCancellations.length} cancellations remain pending.',
+      );
     } catch (e) {
       print('❌ Error syncing pending cancellations: $e');
     }
@@ -1366,12 +1456,12 @@ class AuthService {
   void _startBackgroundSync() {
     // Cancel existing timer if any
     _stopBackgroundSync();
-    
+
     print('🔄 Starting background sync timer (every 30 seconds)');
     _backgroundSyncTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
       _performBackgroundSync();
     });
-    
+
     // Also perform initial sync
     _performBackgroundSync();
   }
@@ -1391,7 +1481,7 @@ class AuthService {
 
     try {
       print('🔄 Background sync: Checking for unsynced data...');
-      
+
       // Check connectivity first by trying a quick API call
       bool hasInternet = await _checkInternetConnectivity();
       if (!hasInternet) {
@@ -1400,10 +1490,11 @@ class AuthService {
       }
 
       print('📡 Internet connected - syncing unsynced data');
-      
+
       // Sync penalty fees
       try {
-        final unsyncedPenalties = await _databaseHelper.getUnsyncedPenaltyFeesCount();
+        final unsyncedPenalties = await _databaseHelper
+            .getUnsyncedPenaltyFeesCount();
         if (unsyncedPenalties > 0) {
           print('🔄 Background sync: $unsyncedPenalties unsynced penalty fees');
           await _autoSyncPenaltyFees();
@@ -1414,7 +1505,8 @@ class AuthService {
 
       // Sync repayments
       try {
-        final unsyncedRepayments = await _databaseHelper.getUnsyncedRepaymentsCount();
+        final unsyncedRepayments = await _databaseHelper
+            .getUnsyncedRepaymentsCount();
         if (unsyncedRepayments > 0) {
           print('🔄 Background sync: $unsyncedRepayments unsynced repayments');
           await _autoSyncRepayments();
@@ -1425,7 +1517,8 @@ class AuthService {
 
       // Sync transfers
       try {
-        final unsyncedTransfers = await _databaseHelper.getQueuedTransfersCount();
+        final unsyncedTransfers = await _databaseHelper
+            .getQueuedTransfersCount();
         if (unsyncedTransfers > 0) {
           print('🔄 Background sync: $unsyncedTransfers queued transfers');
           await _autoSyncTransfers();
@@ -1449,7 +1542,9 @@ class AuthService {
       try {
         final queuedPettyCash = await _databaseHelper.getQueuedPettyCash();
         if (queuedPettyCash.isNotEmpty) {
-          print('🔄 Background sync: ${queuedPettyCash.length} queued petty cash entries');
+          print(
+            '🔄 Background sync: ${queuedPettyCash.length} queued petty cash entries',
+          );
           await _autoSyncPettyCash();
         }
       } catch (e) {
@@ -1460,7 +1555,9 @@ class AuthService {
       try {
         final queuedCashCounts = await _databaseHelper.getQueuedCashCounts();
         if (queuedCashCounts.isNotEmpty) {
-          print('🔄 Background sync: ${queuedCashCounts.length} queued cash count entries');
+          print(
+            '🔄 Background sync: ${queuedCashCounts.length} queued cash count entries',
+          );
           await _autoSyncCashCounts();
         }
       } catch (e) {
@@ -1469,9 +1566,12 @@ class AuthService {
 
       // Sync request balances
       try {
-        final queuedRequestBalances = await _databaseHelper.getPendingRequestBalances();
+        final queuedRequestBalances = await _databaseHelper
+            .getPendingRequestBalances();
         if (queuedRequestBalances.isNotEmpty) {
-          print('🔄 Background sync: ${queuedRequestBalances.length} queued request balance entries');
+          print(
+            '🔄 Background sync: ${queuedRequestBalances.length} queued request balance entries',
+          );
           await _syncRequestBalancesInBackground();
         }
       } catch (e) {
@@ -1480,9 +1580,12 @@ class AuthService {
 
       // Process pending cashbook downloads
       try {
-        final pendingDownloads = await _databaseHelper.getPendingCashbookDownloads();
+        final pendingDownloads = await _databaseHelper
+            .getPendingCashbookDownloads();
         if (pendingDownloads.isNotEmpty) {
-          print('🔄 Background processing: ${pendingDownloads.length} pending cashbook downloads');
+          print(
+            '🔄 Background processing: ${pendingDownloads.length} pending cashbook downloads',
+          );
           await _processQueuedDownloads();
         }
       } catch (e) {
@@ -1557,10 +1660,13 @@ class AuthService {
   Future<bool> _checkInternetConnectivity() async {
     try {
       await _apiService.initialize();
-      
+
       // Try any simple GET request that should exist
-      final response = await _apiService.get('/api/QuickLoadClients/load-clients?branchName=test').timeout(Duration(seconds: 5));
-      return response.statusCode >= 200 && response.statusCode < 500; // Even 404 means server is reachable
+      final response = await _apiService
+          .get('/api/QuickLoadClients/load-clients?branchName=test')
+          .timeout(Duration(seconds: 5));
+      return response.statusCode >= 200 &&
+          response.statusCode < 500; // Even 404 means server is reachable
     } catch (e) {
       return false;
     }
@@ -1572,24 +1678,27 @@ class AuthService {
     try {
       print('🔄 Syncing branches from server...');
       await _apiService.initialize();
-      
+
       final response = await _apiService.getBranches();
-      
+
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final responseData = json.decode(response.body) as List<dynamic>;
-        
+
         final branches = responseData
-            .map((branchJson) => Branch.fromJson(branchJson as Map<String, dynamic>))
+            .map(
+              (branchJson) =>
+                  Branch.fromJson(branchJson as Map<String, dynamic>),
+            )
             .toList();
-        
+
         if (branches.isNotEmpty) {
           // Delete all existing branches and insert new ones
           await _databaseHelper.deleteAllBranches();
           await _databaseHelper.insertMultipleBranches(branches);
         }
-        
+
         print('✅ Successfully synced ${branches.length} branches');
-        
+
         return BranchSyncResult(
           success: true,
           message: 'Successfully synced ${branches.length} branches',
@@ -1657,22 +1766,16 @@ class AuthService {
         );
       }
 
-      // Validate date (not more than 2 days ago, not in future)
+      // Validate date (not more than 2 days ago)
       final now = DateTime.now();
-      final twoDaysAgo = now.subtract(Duration(days: 2));
-      
-      if (transferDate.isBefore(twoDaysAgo)) {
+      final today = DateTime(now.year, now.month, now.day); // Today at midnight
+      final transferDay = DateTime(transferDate.year, transferDate.month, transferDate.day); // Selected day at midnight
+      final twoDaysAgo = today.subtract(Duration(days: 2));
+
+      if (transferDay.isBefore(twoDaysAgo)) {
         return TransferResult(
           success: false,
           message: 'Transfer date cannot be more than 2 days ago',
-          transfer: null,
-        );
-      }
-      
-      if (transferDate.isAfter(now)) {
-        return TransferResult(
-          success: false,
-          message: 'Transfer date cannot be in the future',
           transfer: null,
         );
       }
@@ -1687,11 +1790,14 @@ class AuthService {
       }
 
       // Check if user can create transfer (prevent spam)
-      final canCreate = await _databaseHelper.canUserCreateTransfer(_currentUser!.branchId);
+      final canCreate = await _databaseHelper.canUserCreateTransfer(
+        _currentUser!.branchId,
+      );
       if (!canCreate) {
         return TransferResult(
           success: false,
-          message: 'Too many pending transfers. Please wait or try again later.',
+          message:
+              'Too many pending transfers. Please wait or try again later.',
           transfer: null,
         );
       }
@@ -1713,7 +1819,9 @@ class AuthService {
       final transferId = await _databaseHelper.insertTransfer(transfer);
       final storedTransfer = await _databaseHelper.getTransferById(transferId);
 
-      print('✅ Transfer created locally: ${transferType} \$${amount.toStringAsFixed(2)} to ${receivingBranch}');
+      print(
+        '✅ Transfer created locally: ${transferType} \$${amount.toStringAsFixed(2)} to ${receivingBranch}',
+      );
 
       // Try to sync immediately if we have internet (with small delay)
       Future.delayed(const Duration(milliseconds: 500), () {
@@ -1757,8 +1865,10 @@ class AuthService {
 
           // Prepare API payload (excluding narration as required)
           final transferData = transfer.toJson();
-          
-          print('🔄 Auto-syncing ${transfer.transferType} transfer ${transfer.id}: \$${transfer.amount.toStringAsFixed(2)}');
+
+          print(
+            '🔄 Auto-syncing ${transfer.transferType} transfer ${transfer.id}: \$${transfer.amount.toStringAsFixed(2)}',
+          );
 
           // Call appropriate API endpoint based on transfer type and validate response
           http.Response response;
@@ -1783,27 +1893,36 @@ class AuthService {
           if (response.statusCode == 201) {
             try {
               final responseData = json.decode(response.body);
-              
+
               // Check if response contains required fields (Id, Amount, etc.)
-              if (responseData is Map<String, dynamic> && 
-                  responseData.containsKey('Id') && 
+              if (responseData is Map<String, dynamic> &&
+                  responseData.containsKey('Id') &&
                   responseData['Id'] != null &&
                   responseData['Id'] is int &&
                   responseData['Id'] > 0) {
-                
                 syncSuccess = true;
-                print('✅ Transfer ${transfer.id} synced successfully with API ID: ${responseData['Id']}');
-                print('✅ Response: Amount=${responseData['Amount']}, SendingBranch=${responseData['SendingBranch']}, ReceivingBranch=${responseData['ReceivingBranch']}');
+                print(
+                  '✅ Transfer ${transfer.id} synced successfully with API ID: ${responseData['Id']}',
+                );
+                print(
+                  '✅ Response: Amount=${responseData['Amount']}, SendingBranch=${responseData['SendingBranch']}, ReceivingBranch=${responseData['ReceivingBranch']}',
+                );
               } else {
-                print('❌ Transfer ${transfer.id} - Invalid response structure or missing Id field');
+                print(
+                  '❌ Transfer ${transfer.id} - Invalid response structure or missing Id field',
+                );
                 print('❌ Response body: ${response.body}');
               }
             } catch (e) {
-              print('❌ Transfer ${transfer.id} - Error parsing response JSON: $e');
+              print(
+                '❌ Transfer ${transfer.id} - Error parsing response JSON: $e',
+              );
               print('❌ Response body: ${response.body}');
             }
           } else {
-            print('❌ Transfer ${transfer.id} - Unexpected status code: ${response.statusCode}');
+            print(
+              '❌ Transfer ${transfer.id} - Unexpected status code: ${response.statusCode}',
+            );
             print('❌ Response body: ${response.body}');
           }
 
@@ -1812,9 +1931,10 @@ class AuthService {
             await _databaseHelper.updateTransferSyncStatus(transfer.id!, true);
             print('✅ Transfer ${transfer.id} marked as synced in database');
           } else {
-            print('❌ Transfer ${transfer.id} NOT marked as synced - sync failed');
+            print(
+              '❌ Transfer ${transfer.id} NOT marked as synced - sync failed',
+            );
           }
-
         } catch (e) {
           print('❌ Error syncing transfer ${transfer.id}: $e');
           // Continue with other transfers even if one fails
@@ -1868,10 +1988,12 @@ class AuthService {
             continue;
           }
 
-          print('🔄 Syncing transfer: ${transfer.transferType} \$${transfer.amount.toStringAsFixed(2)}...');
+          print(
+            '🔄 Syncing transfer: ${transfer.transferType} \$${transfer.amount.toStringAsFixed(2)}...',
+          );
 
           final transferData = transfer.toJson();
-          
+
           // Call appropriate API endpoint based on transfer type and validate response
           http.Response response;
           bool syncSuccess = false;
@@ -1896,24 +2018,31 @@ class AuthService {
           if (response.statusCode == 201) {
             try {
               final responseData = json.decode(response.body);
-              
+
               // Check if response contains required fields (Id, Amount, etc.)
-              if (responseData is Map<String, dynamic> && 
-                  responseData.containsKey('Id') && 
+              if (responseData is Map<String, dynamic> &&
+                  responseData.containsKey('Id') &&
                   responseData['Id'] != null &&
                   responseData['Id'] is int &&
                   responseData['Id'] > 0) {
-                
                 syncSuccess = true;
-                print('✅ Transfer ${transfer.id} synced successfully with API ID: ${responseData['Id']}');
+                print(
+                  '✅ Transfer ${transfer.id} synced successfully with API ID: ${responseData['Id']}',
+                );
               } else {
-                syncErrors.add('Transfer ${transfer.id}: Invalid response structure or missing Id field');
+                syncErrors.add(
+                  'Transfer ${transfer.id}: Invalid response structure or missing Id field',
+                );
               }
             } catch (e) {
-              syncErrors.add('Transfer ${transfer.id}: Error parsing response JSON - $e');
+              syncErrors.add(
+                'Transfer ${transfer.id}: Error parsing response JSON - $e',
+              );
             }
           } else {
-            syncErrors.add('Transfer ${transfer.id}: Unexpected status code ${response.statusCode}');
+            syncErrors.add(
+              'Transfer ${transfer.id}: Unexpected status code ${response.statusCode}',
+            );
           }
 
           // Only mark as synced and count as success if we had true success
@@ -2039,7 +2168,7 @@ class AuthService {
   Future<Map<String, int>> getTransferCounts() async {
     final queuedCount = await _databaseHelper.getQueuedTransfersCount();
     final syncedCount = await _databaseHelper.getSyncedTransfersCount();
-    
+
     return {
       'queued': queuedCount,
       'synced': syncedCount,
@@ -2054,16 +2183,18 @@ class AuthService {
     }
 
     final allBranches = await _databaseHelper.getAllBranches();
-    
+
     // Filter out user's own branch
-    return allBranches.where((branch) => branch.branchId != _currentUser!.branchId).toList();
+    return allBranches
+        .where((branch) => branch.branchId != _currentUser!.branchId)
+        .toList();
   }
 
   /// Validate transfer date (helper method)
   bool isValidTransferDate(DateTime date) {
     final now = DateTime.now();
     final twoDaysAgo = now.subtract(Duration(days: 2));
-    
+
     return date.isAfter(twoDaysAgo) && !date.isAfter(now);
   }
 
@@ -2073,12 +2204,12 @@ class AuthService {
       final transfers = await getAllTransfers();
       final queuedTransfers = transfers.where((t) => !t.isSynced).toList();
       final syncedTransfers = transfers.where((t) => t.isSynced).toList();
-      
+
       // Calculate totals by type
       double totalUSDCash = 0;
       double totalUSDBank = 0;
       double totalZWGBank = 0;
-      
+
       for (final transfer in syncedTransfers) {
         switch (transfer.transferType) {
           case 'USD_CASH':
@@ -2092,7 +2223,7 @@ class AuthService {
             break;
         }
       }
-      
+
       return {
         'totalTransfers': transfers.length,
         'queuedTransfers': queuedTransfers.length,
@@ -2136,22 +2267,16 @@ class AuthService {
         );
       }
 
-      // Validate date (not more than 2 days ago, not in future)
+      // Validate date (not more than 2 days ago)
       final now = DateTime.now();
-      final twoDaysAgo = now.subtract(Duration(days: 2));
-      
-      if (expenseDate.isBefore(twoDaysAgo)) {
+      final today = DateTime(now.year, now.month, now.day); // Today at midnight
+      final expenseDay = DateTime(expenseDate.year, expenseDate.month, expenseDate.day); // Selected day at midnight
+      final twoDaysAgo = today.subtract(Duration(days: 2));
+
+      if (expenseDay.isBefore(twoDaysAgo)) {
         return ExpenseResult(
           success: false,
           message: 'Expense date cannot be more than 2 days ago',
-          expense: null,
-        );
-      }
-      
-      if (expenseDate.isAfter(now)) {
-        return ExpenseResult(
-          success: false,
-          message: 'Expense date cannot be in the future',
           expense: null,
         );
       }
@@ -2176,18 +2301,23 @@ class AuthService {
       );
 
       // Check for potential duplicates (WARNING only, don't block)
-      final similarExpenses = await _databaseHelper.findSimilarExpenses(expense);
+      final similarExpenses = await _databaseHelper.findSimilarExpenses(
+        expense,
+      );
       String warningMessage = '';
-      
+
       if (similarExpenses.isNotEmpty) {
-        warningMessage = '\n⚠️ WARNING: Similar expense found (${ExpenseCategoryHelper.getDisplayName(category)}, \$${amount.toStringAsFixed(2)}, ${expense.formattedDate})';
+        warningMessage =
+            '\n⚠️ WARNING: Similar expense found (${ExpenseCategoryHelper.getDisplayName(category)}, \$${amount.toStringAsFixed(2)}, ${expense.formattedDate})';
       }
 
       // Store locally
       final expenseId = await _databaseHelper.insertExpense(expense);
       final storedExpense = await _databaseHelper.getExpenseById(expenseId);
 
-      print('✅ Expense created locally: ${ExpenseCategoryHelper.getDisplayName(category)} \$${amount.toStringAsFixed(2)} for ${_currentUser!.branch}');
+      print(
+        '✅ Expense created locally: ${ExpenseCategoryHelper.getDisplayName(category)} \$${amount.toStringAsFixed(2)} for ${_currentUser!.branch}',
+      );
 
       // Try to sync immediately if we have internet (with small delay)
       Future.delayed(const Duration(milliseconds: 500), () {
@@ -2196,7 +2326,8 @@ class AuthService {
 
       return ExpenseResult(
         success: true,
-        message: 'Expense created successfully - queued for sync${warningMessage}',
+        message:
+            'Expense created successfully - queued for sync${warningMessage}',
         expense: storedExpense,
       );
     } catch (e) {
@@ -2224,8 +2355,10 @@ class AuthService {
         try {
           // Prepare API payload
           final expenseData = expense.toJson();
-          
-          print('🔄 Auto-syncing ${ExpenseCategoryHelper.getDisplayName(expense.category)} expense ${expense.id}: \$${expense.amount.toStringAsFixed(2)}');
+
+          print(
+            '🔄 Auto-syncing ${ExpenseCategoryHelper.getDisplayName(expense.category)} expense ${expense.id}: \$${expense.amount.toStringAsFixed(2)}',
+          );
 
           // Call expense API endpoint and validate response
           final response = await _apiService.submitExpense(expenseData);
@@ -2235,27 +2368,36 @@ class AuthService {
           if (response.statusCode == 200) {
             try {
               final responseData = json.decode(response.body);
-              
+
               // Check if response contains required fields (Id, Amount, etc.)
-              if (responseData is Map<String, dynamic> && 
-                  responseData.containsKey('Id') && 
+              if (responseData is Map<String, dynamic> &&
+                  responseData.containsKey('Id') &&
                   responseData['Id'] != null &&
                   responseData['Id'] is int &&
                   responseData['Id'] > 0) {
-                
                 syncSuccess = true;
-                print('✅ Expense ${expense.id} synced successfully with API ID: ${responseData['Id']}');
-                print('✅ Response: Amount=${responseData['Amount']}, BranchName=${responseData['BranchName']}, Category=${responseData['Category']}');
+                print(
+                  '✅ Expense ${expense.id} synced successfully with API ID: ${responseData['Id']}',
+                );
+                print(
+                  '✅ Response: Amount=${responseData['Amount']}, BranchName=${responseData['BranchName']}, Category=${responseData['Category']}',
+                );
               } else {
-                print('❌ Expense ${expense.id} - Invalid response structure or missing Id field');
+                print(
+                  '❌ Expense ${expense.id} - Invalid response structure or missing Id field',
+                );
                 print('❌ Response body: ${response.body}');
               }
             } catch (e) {
-              print('❌ Expense ${expense.id} - Error parsing response JSON: $e');
+              print(
+                '❌ Expense ${expense.id} - Error parsing response JSON: $e',
+              );
               print('❌ Response body: ${response.body}');
             }
           } else {
-            print('❌ Expense ${expense.id} - Unexpected status code: ${response.statusCode}');
+            print(
+              '❌ Expense ${expense.id} - Unexpected status code: ${response.statusCode}',
+            );
             print('❌ Response body: ${response.body}');
           }
 
@@ -2266,7 +2408,6 @@ class AuthService {
           } else {
             print('❌ Expense ${expense.id} NOT marked as synced - sync failed');
           }
-
         } catch (e) {
           print('❌ Error syncing expense ${expense.id}: $e');
           // Continue with other expenses even if one fails
@@ -2312,7 +2453,9 @@ class AuthService {
 
       for (final expense in queuedExpenses) {
         try {
-          print('🔄 Syncing expense: ${ExpenseCategoryHelper.getDisplayName(expense.category)} \$${expense.amount.toStringAsFixed(2)}...');
+          print(
+            '🔄 Syncing expense: ${ExpenseCategoryHelper.getDisplayName(expense.category)} \$${expense.amount.toStringAsFixed(2)}...',
+          );
 
           final expenseData = expense.toJson();
           final response = await _apiService.submitExpense(expenseData);
@@ -2322,24 +2465,31 @@ class AuthService {
           if (response.statusCode == 200) {
             try {
               final responseData = json.decode(response.body);
-              
+
               // Check if response contains required fields (Id, Amount, etc.)
-              if (responseData is Map<String, dynamic> && 
-                  responseData.containsKey('Id') && 
+              if (responseData is Map<String, dynamic> &&
+                  responseData.containsKey('Id') &&
                   responseData['Id'] != null &&
                   responseData['Id'] is int &&
                   responseData['Id'] > 0) {
-                
                 syncSuccess = true;
-                print('✅ Expense ${expense.id} synced successfully with API ID: ${responseData['Id']}');
+                print(
+                  '✅ Expense ${expense.id} synced successfully with API ID: ${responseData['Id']}',
+                );
               } else {
-                syncErrors.add('Expense ${expense.id}: Invalid response structure or missing Id field');
+                syncErrors.add(
+                  'Expense ${expense.id}: Invalid response structure or missing Id field',
+                );
               }
             } catch (e) {
-              syncErrors.add('Expense ${expense.id}: Error parsing response JSON - $e');
+              syncErrors.add(
+                'Expense ${expense.id}: Error parsing response JSON - $e',
+              );
             }
           } else {
-            syncErrors.add('Expense ${expense.id}: Unexpected status code ${response.statusCode}');
+            syncErrors.add(
+              'Expense ${expense.id}: Unexpected status code ${response.statusCode}',
+            );
           }
 
           // Only mark as synced and count as success if we had true success
@@ -2457,7 +2607,7 @@ class AuthService {
   Future<Map<String, int>> getExpenseCounts() async {
     final queuedCount = await _databaseHelper.getQueuedExpensesCount();
     final syncedCount = await _databaseHelper.getSyncedExpensesCount();
-    
+
     return {
       'queued': queuedCount,
       'synced': syncedCount,
@@ -2469,7 +2619,7 @@ class AuthService {
   bool isValidExpenseDate(DateTime date) {
     final now = DateTime.now();
     final twoDaysAgo = now.subtract(Duration(days: 2));
-    
+
     return date.isAfter(twoDaysAgo) && !date.isAfter(now);
   }
 
@@ -2493,22 +2643,27 @@ class AuthService {
     try {
       final expenses = await getAllExpenses();
       final queuedExpenses = expenses.where((e) => !e.isSynced).toList();
-      final syncedExpenses = expenses.where((e) => e.isSynced && !e.isExpired).toList();
-      
+      final syncedExpenses = expenses
+          .where((e) => e.isSynced && !e.isExpired)
+          .toList();
+
       // Calculate totals by category
       Map<String, double> totalsByCategory = {};
-      
+
       for (final expense in syncedExpenses) {
-        totalsByCategory[expense.category] = 
+        totalsByCategory[expense.category] =
             (totalsByCategory[expense.category] ?? 0) + expense.amount;
       }
-      
+
       return {
         'totalExpenses': expenses.length,
         'queuedExpenses': queuedExpenses.length,
         'syncedExpenses': syncedExpenses.length,
         'totalsByCategory': totalsByCategory,
-        'grandTotal': syncedExpenses.fold<double>(0, (sum, expense) => sum + expense.amount),
+        'grandTotal': syncedExpenses.fold<double>(
+          0,
+          (sum, expense) => sum + expense.amount,
+        ),
       };
     } catch (e) {
       print('Error getting expense summary: $e');
@@ -2517,12 +2672,19 @@ class AuthService {
   }
 
   /// Get expenses for date range
-  Future<List<Expense>> getExpensesForDateRange(DateTime startDate, DateTime endDate) async {
+  Future<List<Expense>> getExpensesForDateRange(
+    DateTime startDate,
+    DateTime endDate,
+  ) async {
     if (!isLoggedIn || _currentUser == null) {
       return [];
     }
-    
-    return await _databaseHelper.getExpensesForDateRange(startDate, endDate, branchName: _currentUser!.branch);
+
+    return await _databaseHelper.getExpensesForDateRange(
+      startDate,
+      endDate,
+      branchName: _currentUser!.branch,
+    );
   }
 
   // ===== END EXPENSE MANAGEMENT METHODS =====
@@ -2552,22 +2714,16 @@ class AuthService {
         );
       }
 
-      // Validate date (not more than 2 days ago, not in future)
+      // Validate date (not more than 2 days ago)
       final now = DateTime.now();
-      final twoDaysAgo = now.subtract(Duration(days: 2));
-      
-      if (dateApplicable.isBefore(twoDaysAgo)) {
+      final today = DateTime(now.year, now.month, now.day); // Today at midnight
+      final applicableDay = DateTime(dateApplicable.year, dateApplicable.month, dateApplicable.day); // Selected day at midnight
+      final twoDaysAgo = today.subtract(Duration(days: 2));
+
+      if (applicableDay.isBefore(twoDaysAgo)) {
         return PettyCashResult(
           success: false,
           message: 'Date applicable cannot be more than 2 days ago',
-          pettyCash: null,
-        );
-      }
-      
-      if (dateApplicable.isAfter(now)) {
-        return PettyCashResult(
-          success: false,
-          message: 'Date applicable cannot be in the future',
           pettyCash: null,
         );
       }
@@ -2582,18 +2738,25 @@ class AuthService {
       );
 
       // Check for potential duplicates (WARNING only, don't block)
-      final similarEntries = await _databaseHelper.findSimilarPettyCash(pettyCash);
+      final similarEntries = await _databaseHelper.findSimilarPettyCash(
+        pettyCash,
+      );
       String warningMessage = '';
-      
+
       if (similarEntries.isNotEmpty) {
-        warningMessage = '\n⚠️ WARNING: Similar petty cash funding found (${pettyCash.formattedAmount}, ${pettyCash.formattedDate})';
+        warningMessage =
+            '\n⚠️ WARNING: Similar petty cash funding found (${pettyCash.formattedAmount}, ${pettyCash.formattedDate})';
       }
 
       // Store locally
       final pettyCashId = await _databaseHelper.insertPettyCash(pettyCash);
-      final storedPettyCash = await _databaseHelper.getPettyCashById(pettyCashId);
+      final storedPettyCash = await _databaseHelper.getPettyCashById(
+        pettyCashId,
+      );
 
-      print('✅ Petty cash funded locally: ${pettyCash.formattedAmount} for ${_currentUser!.branch}');
+      print(
+        '✅ Petty cash funded locally: ${pettyCash.formattedAmount} for ${_currentUser!.branch}',
+      );
 
       // Try to sync immediately if we have internet (with small delay)
       Future.delayed(const Duration(milliseconds: 500), () {
@@ -2602,7 +2765,8 @@ class AuthService {
 
       return PettyCashResult(
         success: true,
-        message: 'Petty cash funded successfully - queued for sync${warningMessage}',
+        message:
+            'Petty cash funded successfully - queued for sync${warningMessage}',
         pettyCash: storedPettyCash,
       );
     } catch (e) {
@@ -2630,44 +2794,63 @@ class AuthService {
         try {
           // Prepare API payload
           final pettyCashData = pettyCash.toJson();
-          
-          print('🔄 Auto-syncing petty cash ${pettyCash.id}: ${pettyCash.formattedAmount}');
+
+          print(
+            '🔄 Auto-syncing petty cash ${pettyCash.id}: ${pettyCash.formattedAmount}',
+          );
 
           // Call fund petty cash API endpoint and validate response
           final response = await _apiService.fundPettyCash(pettyCashData);
           bool syncSuccess = false;
 
-          // Validate response - ONLY mark as synced if we get 200 with valid response
-          if (response.statusCode == 200) {
+          // Validate response - ONLY mark as synced on success (2xx)
+          if (response.statusCode >= 200 && response.statusCode < 300) {
             try {
               final responseData = json.decode(response.body);
-              
-              // Check if response indicates success
+
+              // Response: { "success": true, "message": "...", "data": { "Id": ... } }
               if (responseData is Map<String, dynamic>) {
-                // Based on the expected response: { success = true, message = "Petty cash funded successfully.", data = record }
-                if (responseData.containsKey('success') && responseData['success'] == true) {
+                final isSuccess = responseData['success'] == true ||
+                    (responseData.containsKey('data') &&
+                        responseData['data'] != null &&
+                        responseData['data']['Id'] != null);
+                if (isSuccess) {
                   syncSuccess = true;
-                  print('✅ Petty cash ${pettyCash.id} synced successfully');
-                  print('✅ Response message: ${responseData['message']}');
+                  final dataId = responseData['data']?['Id'];
+                  print('✅ Petty cash ${pettyCash.id} synced successfully - API ID: $dataId');
+                  print('✅ Response: ${responseData['message']}');
                 } else {
-                  print('❌ Petty cash ${pettyCash.id}: API returned success=false or invalid structure');
+                  print(
+                    '❌ Petty cash ${pettyCash.id}: API returned success=false',
+                  );
                 }
               } else {
-                print('❌ Petty cash ${pettyCash.id}: Invalid response structure');
+                print(
+                  '❌ Petty cash ${pettyCash.id}: Invalid response structure',
+                );
               }
             } catch (e) {
-              print('❌ Error parsing response for petty cash ${pettyCash.id}: $e');
+              print(
+                '❌ Error parsing response for petty cash ${pettyCash.id}: $e',
+              );
             }
           } else {
-            print('❌ Petty cash ${pettyCash.id}: Unexpected status code ${response.statusCode}');
+            print(
+              '❌ Petty cash ${pettyCash.id}: Unexpected status code ${response.statusCode}',
+            );
           }
 
           // Only mark as synced and continue background processing if we had true success
           if (syncSuccess) {
-            await _databaseHelper.updatePettyCashSyncStatus(pettyCash.id!, true);
+            await _databaseHelper.updatePettyCashSyncStatus(
+              pettyCash.id!,
+              true,
+            );
             print('✅ Auto-synced petty cash ${pettyCash.id}');
           } else {
-            print('❌ Failed to auto-sync petty cash ${pettyCash.id} - will retry later');
+            print(
+              '❌ Failed to auto-sync petty cash ${pettyCash.id} - will retry later',
+            );
             // Don't mark as failed, just leave queued for retry
           }
         } catch (e) {
@@ -2724,27 +2907,35 @@ class AuthService {
           if (response.statusCode == 200) {
             try {
               final responseData = json.decode(response.body);
-              
+
               // Check if response indicates success
-              if (responseData is Map<String, dynamic> && 
-                  responseData.containsKey('success') && 
+              if (responseData is Map<String, dynamic> &&
+                  responseData.containsKey('success') &&
                   responseData['success'] == true) {
-                
                 syncSuccess = true;
                 print('✅ Petty cash ${pettyCash.id} synced successfully');
               } else {
-                syncErrors.add('Petty cash ${pettyCash.id}: Invalid response structure or success=false');
+                syncErrors.add(
+                  'Petty cash ${pettyCash.id}: Invalid response structure or success=false',
+                );
               }
             } catch (e) {
-              syncErrors.add('Petty cash ${pettyCash.id}: Error parsing response JSON - $e');
+              syncErrors.add(
+                'Petty cash ${pettyCash.id}: Error parsing response JSON - $e',
+              );
             }
           } else {
-            syncErrors.add('Petty cash ${pettyCash.id}: Unexpected status code ${response.statusCode}');
+            syncErrors.add(
+              'Petty cash ${pettyCash.id}: Unexpected status code ${response.statusCode}',
+            );
           }
 
           // Only mark as synced and count as success if we had true success
           if (syncSuccess) {
-            await _databaseHelper.updatePettyCashSyncStatus(pettyCash.id!, true);
+            await _databaseHelper.updatePettyCashSyncStatus(
+              pettyCash.id!,
+              true,
+            );
             syncedCount++;
             print('✅ Synced petty cash ${pettyCash.id}');
           } else {
@@ -2852,7 +3043,7 @@ class AuthService {
   bool isValidPettyCashDate(DateTime date) {
     final now = DateTime.now();
     final twoDaysAgo = now.subtract(Duration(days: 2));
-    
+
     return date.isAfter(twoDaysAgo) && !date.isAfter(now);
   }
 
@@ -2862,12 +3053,19 @@ class AuthService {
   }
 
   /// Get petty cash entries for date range
-  Future<List<PettyCash>> getPettyCashForDateRange(DateTime startDate, DateTime endDate) async {
+  Future<List<PettyCash>> getPettyCashForDateRange(
+    DateTime startDate,
+    DateTime endDate,
+  ) async {
     if (!isLoggedIn || _currentUser == null) {
       return [];
     }
-    
-    return await _databaseHelper.getPettyCashForDateRange(startDate, endDate, branchName: _currentUser!.branch);
+
+    return await _databaseHelper.getPettyCashForDateRange(
+      startDate,
+      endDate,
+      branchName: _currentUser!.branch,
+    );
   }
 
   // ===== END FUND PETTY CASH MANAGEMENT METHODS =====
@@ -2900,19 +3098,11 @@ class AuthService {
       // Validate date (not more than 1 day ago, not in future)
       final now = DateTime.now();
       final oneDayAgo = now.subtract(Duration(days: 1));
-      
+
       if (cashbookDate.isBefore(oneDayAgo)) {
         return CashCountResult(
           success: false,
           message: 'Cashbook date cannot be more than 1 day ago',
-          cashCount: null,
-        );
-      }
-      
-      if (cashbookDate.isAfter(now)) {
-        return CashCountResult(
-          success: false,
-          message: 'Cashbook date cannot be in the future',
           cashCount: null,
         );
       }
@@ -2928,18 +3118,25 @@ class AuthService {
       );
 
       // Check for potential duplicates (WARNING only, don't block)
-      final similarEntries = await _databaseHelper.findSimilarCashCounts(cashCount);
+      final similarEntries = await _databaseHelper.findSimilarCashCounts(
+        cashCount,
+      );
       String warningMessage = '';
-      
+
       if (similarEntries.isNotEmpty) {
-        warningMessage = '\n⚠️ WARNING: Similar cash count found for ${cashCount.formattedDate}';
+        warningMessage =
+            '\n⚠️ WARNING: Similar cash count found for ${cashCount.formattedDate}';
       }
 
       // Store locally
       final cashCountId = await _databaseHelper.insertCashCount(cashCount);
-      final storedCashCount = await _databaseHelper.getCashCountById(cashCountId);
+      final storedCashCount = await _databaseHelper.getCashCountById(
+        cashCountId,
+      );
 
-      print('✅ Cash count captured locally: ${cashCount.formattedAmount} for ${_currentUser!.branch}');
+      print(
+        '✅ Cash count captured locally: ${cashCount.formattedAmount} for ${_currentUser!.branch}',
+      );
 
       // Try to sync immediately if we have internet (with small delay)
       Future.delayed(const Duration(milliseconds: 500), () {
@@ -2948,7 +3145,8 @@ class AuthService {
 
       return CashCountResult(
         success: true,
-        message: 'Cash count captured successfully - queued for sync${warningMessage}',
+        message:
+            'Cash count captured successfully - queued for sync${warningMessage}',
         cashCount: storedCashCount,
       );
     } catch (e) {
@@ -2976,44 +3174,62 @@ class AuthService {
         try {
           // Prepare API payload
           final cashCountData = cashCount.toJson();
-          
-          print('🔄 Auto-syncing cash count ${cashCount.id}: ${cashCount.formattedAmount}');
+
+          print(
+            '🔄 Auto-syncing cash count ${cashCount.id}: ${cashCount.formattedAmount}',
+          );
 
           // Call cash count API endpoint and validate response
-          final response = await _apiService.captureDailyCashCount(cashCountData);
+          final response = await _apiService.captureDailyCashCount(
+            cashCountData,
+          );
           bool syncSuccess = false;
 
           // Validate response - ONLY mark as synced if we get 200 with valid response
           if (response.statusCode == 200) {
             try {
               final responseData = json.decode(response.body);
-              
+
               // Check if response indicates success
               if (responseData is Map<String, dynamic>) {
                 // Based on the expected response: { m = "Cash count captured successfully" }
-                if (responseData.containsKey('m') && responseData['m'].toString().contains('successfully')) {
+                if (responseData.containsKey('m') &&
+                    responseData['m'].toString().contains('successfully')) {
                   syncSuccess = true;
                   print('✅ Cash count ${cashCount.id} synced successfully');
                   print('✅ Response message: ${responseData['m']}');
                 } else {
-                  print('❌ Cash count ${cashCount.id}: API returned unexpected response structure');
+                  print(
+                    '❌ Cash count ${cashCount.id}: API returned unexpected response structure',
+                  );
                 }
               } else {
-                print('❌ Cash count ${cashCount.id}: Invalid response structure');
+                print(
+                  '❌ Cash count ${cashCount.id}: Invalid response structure',
+                );
               }
             } catch (e) {
-              print('❌ Error parsing response for cash count ${cashCount.id}: $e');
+              print(
+                '❌ Error parsing response for cash count ${cashCount.id}: $e',
+              );
             }
           } else {
-            print('❌ Cash count ${cashCount.id}: Unexpected status code ${response.statusCode}');
+            print(
+              '❌ Cash count ${cashCount.id}: Unexpected status code ${response.statusCode}',
+            );
           }
 
           // Only mark as synced and continue background processing if we had true success
           if (syncSuccess) {
-            await _databaseHelper.updateCashCountSyncStatus(cashCount.id!, true);
+            await _databaseHelper.updateCashCountSyncStatus(
+              cashCount.id!,
+              true,
+            );
             print('✅ Auto-synced cash count ${cashCount.id}');
           } else {
-            print('❌ Failed to auto-sync cash count ${cashCount.id} - will retry later');
+            print(
+              '❌ Failed to auto-sync cash count ${cashCount.id} - will retry later',
+            );
             // Don't mark as failed, just leave queued for retry
           }
         } catch (e) {
@@ -3063,34 +3279,44 @@ class AuthService {
           print('🔄 Syncing cash count: ${cashCount.formattedAmount}...');
 
           final cashCountData = cashCount.toJson();
-          final response = await _apiService.captureDailyCashCount(cashCountData);
+          final response = await _apiService.captureDailyCashCount(
+            cashCountData,
+          );
           bool syncSuccess = false;
 
           // Validate response - ONLY mark as synced if we get 200 with valid response
           if (response.statusCode == 200) {
             try {
               final responseData = json.decode(response.body);
-              
+
               // Check if response indicates success
-              if (responseData is Map<String, dynamic> && 
-                  responseData.containsKey('m') && 
+              if (responseData is Map<String, dynamic> &&
+                  responseData.containsKey('m') &&
                   responseData['m'].toString().contains('successfully')) {
-                
                 syncSuccess = true;
                 print('✅ Cash count ${cashCount.id} synced successfully');
               } else {
-                syncErrors.add('Cash count ${cashCount.id}: Invalid response structure or missing success message');
+                syncErrors.add(
+                  'Cash count ${cashCount.id}: Invalid response structure or missing success message',
+                );
               }
             } catch (e) {
-              syncErrors.add('Cash count ${cashCount.id}: Error parsing response JSON - $e');
+              syncErrors.add(
+                'Cash count ${cashCount.id}: Error parsing response JSON - $e',
+              );
             }
           } else {
-            syncErrors.add('Cash count ${cashCount.id}: Unexpected status code ${response.statusCode}');
+            syncErrors.add(
+              'Cash count ${cashCount.id}: Unexpected status code ${response.statusCode}',
+            );
           }
 
           // Only mark as synced and count as success if we had true success
           if (syncSuccess) {
-            await _databaseHelper.updateCashCountSyncStatus(cashCount.id!, true);
+            await _databaseHelper.updateCashCountSyncStatus(
+              cashCount.id!,
+              true,
+            );
             syncedCount++;
             print('✅ Synced cash count ${cashCount.id}');
           } else {
@@ -3198,7 +3424,7 @@ class AuthService {
   bool isValidCashCountDate(DateTime date) {
     final now = DateTime.now();
     final oneDayAgo = now.subtract(Duration(days: 1));
-    
+
     return date.isAfter(oneDayAgo) && !date.isAfter(now);
   }
 
@@ -3208,12 +3434,19 @@ class AuthService {
   }
 
   /// Get cash count entries for date range
-  Future<List<CashCount>> getCashCountsForDateRange(DateTime startDate, DateTime endDate) async {
+  Future<List<CashCount>> getCashCountsForDateRange(
+    DateTime startDate,
+    DateTime endDate,
+  ) async {
     if (!isLoggedIn || _currentUser == null) {
       return [];
     }
-    
-    return await _databaseHelper.getCashCountsForDateRange(startDate, endDate, branchName: _currentUser!.branch);
+
+    return await _databaseHelper.getCashCountsForDateRange(
+      startDate,
+      endDate,
+      branchName: _currentUser!.branch,
+    );
   }
 
   // ===== END DAILY CASH COUNT MANAGEMENT METHODS =====
@@ -3233,15 +3466,7 @@ class AuthService {
     }
 
     try {
-      // Validate date (cannot be in the future)
-      final now = DateTime.now();
-      if (cashbookDate.isAfter(now)) {
-        return CashbookDownloadResult(
-          success: false,
-          message: 'Cashbook date cannot be in the future',
-          download: null,
-        );
-      }
+      // No date validation needed - date picker prevents future dates
 
       // Create download request
       final download = CashbookDownload(
@@ -3253,7 +3478,9 @@ class AuthService {
 
       // Store locally
       final downloadId = await _databaseHelper.insertCashbookDownload(download);
-      final storedDownload = await _databaseHelper.getCashbookDownloadById(downloadId);
+      final storedDownload = await _databaseHelper.getCashbookDownloadById(
+        downloadId,
+      );
 
       print('✅ Cashbook download requested: ${storedDownload!.formattedDate}');
 
@@ -3280,12 +3507,15 @@ class AuthService {
   /// Process queued downloads in background
   Future<void> _processQueuedDownloads() async {
     try {
-      final pendingDownloads = await _databaseHelper.getPendingCashbookDownloads();
+      final pendingDownloads = await _databaseHelper
+          .getPendingCashbookDownloads();
       if (pendingDownloads.isEmpty) {
         return;
       }
 
-      print('🔄 Processing ${pendingDownloads.length} pending cashbook downloads...');
+      print(
+        '🔄 Processing ${pendingDownloads.length} pending cashbook downloads...',
+      );
       await _apiService.initialize();
 
       for (final download in pendingDownloads) {
@@ -3322,7 +3552,7 @@ class AuthService {
       if (fileBytes != null) {
         // Save file to local storage
         final filePath = await _saveCashbookFile(download, fileBytes);
-        
+
         if (filePath != null) {
           // Mark as completed
           await _databaseHelper.updateCashbookDownloadStatus(
@@ -3349,7 +3579,7 @@ class AuthService {
       }
     } catch (e) {
       print('❌ Error processing download ${download.id}: $e');
-      
+
       // Mark as failed
       await _databaseHelper.updateCashbookDownloadStatus(
         download.id!,
@@ -3360,25 +3590,29 @@ class AuthService {
   }
 
   /// Save cashbook file to local storage
-  Future<String?> _saveCashbookFile(CashbookDownload download, List<int> fileBytes) async {
+  Future<String?> _saveCashbookFile(
+    CashbookDownload download,
+    List<int> fileBytes,
+  ) async {
     try {
       final directory = await getApplicationDocumentsDirectory();
       final cashbookDir = Directory('${directory.path}/cashbooks');
-      
+
       // Create directory if it doesn't exist
       if (!await cashbookDir.exists()) {
         await cashbookDir.create(recursive: true);
       }
 
       // Generate filename
-      final dateStr = "${download.cashbookDate.year}-${download.cashbookDate.month.toString().padLeft(2, '0')}-${download.cashbookDate.day.toString().padLeft(2, '0')}";
+      final dateStr =
+          "${download.cashbookDate.year}-${download.cashbookDate.month.toString().padLeft(2, '0')}-${download.cashbookDate.day.toString().padLeft(2, '0')}";
       final filename = '${download.branchName}_Cashbook_${dateStr}.pdf';
-      
+
       final file = File('${cashbookDir.path}/$filename');
-      
+
       // Write file
       await file.writeAsBytes(fileBytes);
-      
+
       print('💾 Cashbook saved: ${file.path}');
       return file.path;
     } catch (e) {
@@ -3388,7 +3622,9 @@ class AuthService {
   }
 
   /// Get recent cashbook downloads
-  Future<List<CashbookDownload>> getRecentCashbookDownloads({int limit = 5}) async {
+  Future<List<CashbookDownload>> getRecentCashbookDownloads({
+    int limit = 5,
+  }) async {
     return await _databaseHelper.getRecentCashbookDownloads(limit: limit);
   }
 
@@ -3408,7 +3644,9 @@ class AuthService {
     }
 
     try {
-      final download = await _databaseHelper.getCashbookDownloadById(downloadId);
+      final download = await _databaseHelper.getCashbookDownloadById(
+        downloadId,
+      );
       if (download == null) {
         return CashbookDownloadResult(
           success: false,
@@ -3469,7 +3707,8 @@ class AuthService {
     }
 
     try {
-      final pendingDownloads = await _databaseHelper.getPendingCashbookDownloads();
+      final pendingDownloads = await _databaseHelper
+          .getPendingCashbookDownloads();
 
       if (pendingDownloads.isEmpty) {
         return CashbookDownloadSyncResult(
@@ -3488,9 +3727,11 @@ class AuthService {
       for (final download in pendingDownloads) {
         try {
           await _processSingleDownload(download);
-          
+
           // Check final status
-          final updatedDownload = await _databaseHelper.getCashbookDownloadById(download.id!);
+          final updatedDownload = await _databaseHelper.getCashbookDownloadById(
+            download.id!,
+          );
           if (updatedDownload?.status == DownloadStatus.completed) {
             completedCount++;
           } else {
@@ -3543,7 +3784,9 @@ class AuthService {
     try {
       // Validate date (cannot be more than 1 day back datable)
       final yesterday = DateTime.now().subtract(Duration(days: 1));
-      if (cashbookDate.isBefore(DateTime(yesterday.year, yesterday.month, yesterday.day))) {
+      if (cashbookDate.isBefore(
+        DateTime(yesterday.year, yesterday.month, yesterday.day),
+      )) {
         return RequestBalanceResult(
           success: false,
           message: 'Cashbook date cannot be more than 1 day in the past',
@@ -3588,17 +3831,22 @@ class AuthService {
       );
 
       // Save to database (offline-first approach)
-      final requestId = await _databaseHelper.insertRequestBalance(requestBalance);
+      final requestId = await _databaseHelper.insertRequestBalance(
+        requestBalance,
+      );
       final savedRequest = requestBalance.copyWith(id: requestId);
 
-      print('✅ Request balance saved locally: ${savedRequest.formattedAmount} for ${savedRequest.formattedDate}');
+      print(
+        '✅ Request balance saved locally: ${savedRequest.formattedAmount} for ${savedRequest.formattedDate}',
+      );
 
       // Queue for background sync
       _queueRequestBalanceForSync();
 
       return RequestBalanceResult(
         success: true,
-        message: 'Balance request submitted successfully and queued for processing',
+        message:
+            'Balance request submitted successfully and queued for processing',
         request: savedRequest,
       );
     } catch (e) {
@@ -3625,7 +3873,7 @@ class AuthService {
 
     try {
       final pendingRequests = await _databaseHelper.getPendingRequestBalances();
-      
+
       if (pendingRequests.isEmpty) {
         print('📝 No pending request balances to sync');
         return;
@@ -3635,7 +3883,9 @@ class AuthService {
 
       for (final request in pendingRequests) {
         try {
-          print('🔄 Syncing request balance: ${request.formattedAmount} for ${request.formattedDate}');
+          print(
+            '🔄 Syncing request balance: ${request.formattedAmount} for ${request.formattedDate}',
+          );
 
           final apiPayload = request.toApiPayload();
           final syncSuccess = await _apiService.syncRequestBalance(apiPayload);
@@ -3673,13 +3923,17 @@ class AuthService {
   }
 
   /// Get recent request balances
-  Future<List<RequestBalance>> getRecentRequestBalances({int limit = 20}) async {
+  Future<List<RequestBalance>> getRecentRequestBalances({
+    int limit = 20,
+  }) async {
     return await _databaseHelper.getRecentRequestBalances(limit: limit);
   }
 
   /// Get pending request balance count
   Future<int> getPendingRequestBalanceCount() async {
-    return await _databaseHelper.getRequestBalanceCountByStatus(RequestBalanceStatus.pending);
+    return await _databaseHelper.getRequestBalanceCountByStatus(
+      RequestBalanceStatus.pending,
+    );
   }
 
   /// Delete a request balance
@@ -3947,11 +4201,7 @@ class TransferResult {
   final String message;
   final Transfer? transfer;
 
-  TransferResult({
-    required this.success,
-    required this.message,
-    this.transfer,
-  });
+  TransferResult({required this.success, required this.message, this.transfer});
 
   @override
   String toString() {
@@ -3985,11 +4235,7 @@ class ExpenseResult {
   final String message;
   final Expense? expense;
 
-  ExpenseResult({
-    required this.success,
-    required this.message,
-    this.expense,
-  });
+  ExpenseResult({required this.success, required this.message, this.expense});
 
   @override
   String toString() {

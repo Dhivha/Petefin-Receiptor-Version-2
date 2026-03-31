@@ -2,15 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'services/auth_service.dart';
 import 'services/database_helper.dart';
+import 'services/client_background_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/dashboard_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Initialize services
   await _initializeApp();
-  
+
   runApp(const PetefinReceiptorApp());
 }
 
@@ -19,11 +20,14 @@ Future<void> _initializeApp() async {
     // Initialize database
     await DatabaseHelper().database;
     debugPrint('Database initialized');
-    
+
     // Initialize auth service
     await AuthService().initialize();
     debugPrint('Auth service initialized');
-    
+
+    // Start client background service for auto-sync and cleanup
+    ClientBackgroundService.start();
+    debugPrint('Client background service started');
   } catch (e) {
     debugPrint('Error initializing app: $e');
   }
@@ -74,9 +78,7 @@ class PetefinReceiptorApp extends StatelessWidget {
           ),
         ),
         inputDecorationTheme: InputDecorationTheme(
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(color: Colors.blue.shade600, width: 2),
@@ -109,7 +111,7 @@ class _SplashScreenState extends State<SplashScreen> {
     try {
       final authService = AuthService();
       await authService.initialize();
-      
+
       if (authService.isLoggedIn) {
         // User is logged in, navigate to dashboard
         if (mounted) {
@@ -165,9 +167,9 @@ class _SplashScreenState extends State<SplashScreen> {
                 color: Colors.blue.shade600,
               ),
             ),
-            
+
             const SizedBox(height: 32),
-            
+
             // App Title
             const Text(
               'PeteFin Receiptor',
@@ -177,32 +179,26 @@ class _SplashScreenState extends State<SplashScreen> {
                 color: Colors.white,
               ),
             ),
-            
+
             const SizedBox(height: 8),
-            
+
             const Text(
               'Receipt Management System',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.white70,
-              ),
+              style: TextStyle(fontSize: 16, color: Colors.white70),
             ),
-            
+
             const SizedBox(height: 48),
-            
+
             // Loading Indicator
             const CircularProgressIndicator(
               valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
             ),
-            
+
             const SizedBox(height: 16),
-            
+
             const Text(
               'Loading...',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.white70,
-              ),
+              style: TextStyle(fontSize: 16, color: Colors.white70),
             ),
           ],
         ),

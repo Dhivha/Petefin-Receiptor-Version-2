@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/user.dart';
@@ -17,11 +18,17 @@ import '../models/cashbook_download.dart';
 
 class DatabaseHelper {
   static const String _databaseName = "PetefinDb.db";
-  static const int _databaseVersion = 12; // Updated for single date cashbook downloads
+  static const int _databaseVersion =
+      16; // Updated for API payload fixes - added missing fields
 
   // Table names
   static const String _userTable = 'users';
   static const String _clientTable = 'clients';
+  static const String _queuedClientsTable =
+      'queued_clients'; // New table for offline-created clients
+  static const String _collateralSubmissionsTable = 'collateral_submissions';
+  static const String _queuedCollateralSubmissionsTable =
+      'queued_collateral_submissions'; // New table for offline-created submissions
   static const String _disbursementTable = 'disbursements';
   static const String _repaymentTable = 'repayments';
   static const String _receiptNumberTable = 'receipt_numbers';
@@ -40,7 +47,7 @@ class DatabaseHelper {
   static Database? _database;
 
   DatabaseHelper._internal();
-  
+
   factory DatabaseHelper() {
     _instance ??= DatabaseHelper._internal();
     return _instance!;
@@ -55,7 +62,7 @@ class DatabaseHelper {
     String path = join(await getDatabasesPath(), _databaseName);
     return await openDatabase(
       path,
-      version: 13, // Updated for request balance
+      version: 15, // Updated for collateral submissions
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -100,17 +107,71 @@ class DatabaseHelper {
         nextOfKinName TEXT NOT NULL,
         relationshipWithNOK TEXT NOT NULL,
         pin TEXT NOT NULL,
+        photo TEXT, -- Base64 encoded photo or URL
+        syncStatus TEXT NOT NULL DEFAULT 'synced',
         lastSynced INTEGER NOT NULL,
         createdAt INTEGER NOT NULL,
         updatedAt INTEGER NOT NULL
       )
     ''');
 
+    // Create queued clients table for offline-created clients
+    await db.execute('''
+      CREATE TABLE $_queuedClientsTable (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        clientId TEXT NOT NULL UNIQUE,
+        branchId INTEGER,
+        firstName TEXT NOT NULL,
+        lastName TEXT NOT NULL,
+        fullName TEXT NOT NULL,
+        branch TEXT NOT NULL,
+        whatsAppContact TEXT NOT NULL,
+        emailAddress TEXT,
+        nationalIdNumber TEXT NOT NULL,
+        capturedBy TEXT NOT NULL,
+        gender TEXT NOT NULL,
+        nextOfKinContact TEXT NOT NULL,
+        nextOfKinName TEXT NOT NULL,
+        relationshipWithNOK TEXT NOT NULL,
+        pin TEXT,
+        photo TEXT, -- Base64 encoded photo
+        photoBytes BLOB, -- Binary photo data
+        photoExtension TEXT, -- jpg, png, etc
+        syncStatus TEXT NOT NULL DEFAULT 'queued',
+        createdAt INTEGER NOT NULL,
+        syncAttempts INTEGER NOT NULL DEFAULT 0,
+        lastSyncAttempt INTEGER,
+        syncError TEXT
+      )
+    ''');
+
     // Create indexes for faster searches
-    await db.execute('CREATE INDEX idx_clients_full_name ON $_clientTable(fullName)');
-    await db.execute('CREATE INDEX idx_clients_client_id ON $_clientTable(clientId)');
-    await db.execute('CREATE INDEX idx_clients_branch ON $_clientTable(branch)');
-    await db.execute('CREATE INDEX idx_clients_whatsapp ON $_clientTable(whatsAppContact)');
+    await db.execute(
+      'CREATE INDEX idx_clients_full_name ON $_clientTable(fullName)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_clients_client_id ON $_clientTable(clientId)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_clients_branch ON $_clientTable(branch)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_clients_whatsapp ON $_clientTable(whatsAppContact)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_clients_sync_status ON $_clientTable(syncStatus)',
+    );
+
+    // Create indexes for queued clients
+    await db.execute(
+      'CREATE INDEX idx_queued_clients_sync_status ON $_queuedClientsTable(syncStatus)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_queued_clients_created_at ON $_queuedClientsTable(createdAt)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_queued_clients_branch ON $_queuedClientsTable(branch)',
+    );
 
     // Create disbursements table
     await db.execute('''
@@ -156,9 +217,15 @@ class DatabaseHelper {
     ''');
 
     // Create indexes for disbursements
-    await db.execute('CREATE INDEX idx_disbursements_client_id ON $_disbursementTable(clientId)');
-    await db.execute('CREATE INDEX idx_disbursements_branch ON $_disbursementTable(branch)');
-    await db.execute('CREATE INDEX idx_disbursements_date ON $_disbursementTable(dateOfDisbursement)');
+    await db.execute(
+      'CREATE INDEX idx_disbursements_client_id ON $_disbursementTable(clientId)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_disbursements_branch ON $_disbursementTable(branch)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_disbursements_date ON $_disbursementTable(dateOfDisbursement)',
+    );
 
     // Create repayments table
     await db.execute('''
@@ -183,13 +250,27 @@ class DatabaseHelper {
     ''');
 
     // Create indexes for repayments
-    await db.execute('CREATE INDEX idx_repayments_client_id ON $_repaymentTable(clientId)');
-    await db.execute('CREATE INDEX idx_repayments_disbursement_id ON $_repaymentTable(disbursementId)');
-    await db.execute('CREATE INDEX idx_repayments_receipt_number ON $_repaymentTable(receiptNumber)');
-    await db.execute('CREATE INDEX idx_repayments_currency ON $_repaymentTable(currency)');
-    await db.execute('CREATE INDEX idx_repayments_synced ON $_repaymentTable(isSynced)');
-    await db.execute('CREATE INDEX idx_repayments_branch ON $_repaymentTable(branch)');
-    await db.execute('CREATE INDEX idx_repayments_date ON $_repaymentTable(dateOfPayment)');
+    await db.execute(
+      'CREATE INDEX idx_repayments_client_id ON $_repaymentTable(clientId)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_repayments_disbursement_id ON $_repaymentTable(disbursementId)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_repayments_receipt_number ON $_repaymentTable(receiptNumber)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_repayments_currency ON $_repaymentTable(currency)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_repayments_synced ON $_repaymentTable(isSynced)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_repayments_branch ON $_repaymentTable(branch)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_repayments_date ON $_repaymentTable(dateOfPayment)',
+    );
 
     // Create receipt numbers table
     await db.execute('''
@@ -213,11 +294,21 @@ class DatabaseHelper {
     ''');
 
     // Create indexes for receipt numbers
-    await db.execute('CREATE INDEX idx_receipt_numbers_receipt_num ON $_receiptNumberTable(receiptNum)');
-    await db.execute('CREATE INDEX idx_receipt_numbers_is_used ON $_receiptNumberTable(isUsed)');
-    await db.execute('CREATE INDEX idx_receipt_numbers_branch ON $_receiptNumberTable(allocatedToBranch)');
-    await db.execute('CREATE INDEX idx_receipt_numbers_allocated_user ON $_receiptNumberTable(allocatedToUserId)');
-    await db.execute('CREATE INDEX idx_receipt_numbers_used_client ON $_receiptNumberTable(usedByClientId)');
+    await db.execute(
+      'CREATE INDEX idx_receipt_numbers_receipt_num ON $_receiptNumberTable(receiptNum)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_receipt_numbers_is_used ON $_receiptNumberTable(isUsed)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_receipt_numbers_branch ON $_receiptNumberTable(allocatedToBranch)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_receipt_numbers_allocated_user ON $_receiptNumberTable(allocatedToUserId)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_receipt_numbers_used_client ON $_receiptNumberTable(usedByClientId)',
+    );
 
     // Create penalty fees table
     await db.execute('''
@@ -236,11 +327,21 @@ class DatabaseHelper {
     ''');
 
     // Create indexes for penalty fees
-    await db.execute('CREATE INDEX idx_penalty_fees_branch ON $_penaltyFeeTable(branch)');
-    await db.execute('CREATE INDEX idx_penalty_fees_client_name ON $_penaltyFeeTable(clientName)');
-    await db.execute('CREATE INDEX idx_penalty_fees_receipt_number ON $_penaltyFeeTable(receiptNumber)');
-    await db.execute('CREATE INDEX idx_penalty_fees_synced ON $_penaltyFeeTable(isSynced)');
-    await db.execute('CREATE INDEX idx_penalty_fees_date ON $_penaltyFeeTable(dateTimeCaptured)');
+    await db.execute(
+      'CREATE INDEX idx_penalty_fees_branch ON $_penaltyFeeTable(branch)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_penalty_fees_client_name ON $_penaltyFeeTable(clientName)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_penalty_fees_receipt_number ON $_penaltyFeeTable(receiptNumber)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_penalty_fees_synced ON $_penaltyFeeTable(isSynced)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_penalty_fees_date ON $_penaltyFeeTable(dateTimeCaptured)',
+    );
 
     // Create cancelled penalty fees table
     await db.execute('''
@@ -259,9 +360,15 @@ class DatabaseHelper {
     ''');
 
     // Create indexes for cancelled penalty fees
-    await db.execute('CREATE INDEX idx_cancelled_penalty_fees_branch ON $_cancelledPenaltyFeeTable(branch)');
-    await db.execute('CREATE INDEX idx_cancelled_penalty_fees_receipt_number ON $_cancelledPenaltyFeeTable(receiptNumber)');
-    await db.execute('CREATE INDEX idx_cancelled_penalty_fees_cancellation_id ON $_cancelledPenaltyFeeTable(cancellationId)');
+    await db.execute(
+      'CREATE INDEX idx_cancelled_penalty_fees_branch ON $_cancelledPenaltyFeeTable(branch)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_cancelled_penalty_fees_receipt_number ON $_cancelledPenaltyFeeTable(receiptNumber)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_cancelled_penalty_fees_cancellation_id ON $_cancelledPenaltyFeeTable(cancellationId)',
+    );
 
     // Create all branches table
     await db.execute('''
@@ -274,8 +381,12 @@ class DatabaseHelper {
     ''');
 
     // Create indexes for all branches
-    await db.execute('CREATE INDEX idx_all_branches_name ON $_allBranchesTable(branchName)');
-    await db.execute('CREATE INDEX idx_all_branches_last_synced ON $_allBranchesTable(lastSynced)');
+    await db.execute(
+      'CREATE INDEX idx_all_branches_name ON $_allBranchesTable(branchName)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_all_branches_last_synced ON $_allBranchesTable(lastSynced)',
+    );
 
     // Create transfers table
     await db.execute('''
@@ -296,12 +407,24 @@ class DatabaseHelper {
     ''');
 
     // Create indexes for transfers
-    await db.execute('CREATE INDEX idx_transfers_sending_branch ON $_transfersTable(sendingBranchId)');
-    await db.execute('CREATE INDEX idx_transfers_receiving_branch ON $_transfersTable(receivingBranchId)');
-    await db.execute('CREATE INDEX idx_transfers_transfer_type ON $_transfersTable(transferType)');
-    await db.execute('CREATE INDEX idx_transfers_synced ON $_transfersTable(isSynced)');
-    await db.execute('CREATE INDEX idx_transfers_date ON $_transfersTable(transferDate)');
-    await db.execute('CREATE INDEX idx_transfers_created_at ON $_transfersTable(createdAt)');
+    await db.execute(
+      'CREATE INDEX idx_transfers_sending_branch ON $_transfersTable(sendingBranchId)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_transfers_receiving_branch ON $_transfersTable(receivingBranchId)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_transfers_transfer_type ON $_transfersTable(transferType)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_transfers_synced ON $_transfersTable(isSynced)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_transfers_date ON $_transfersTable(transferDate)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_transfers_created_at ON $_transfersTable(createdAt)',
+    );
 
     // Create expenses table
     await db.execute('''
@@ -318,11 +441,21 @@ class DatabaseHelper {
     ''');
 
     // Create indexes for expenses
-    await db.execute('CREATE INDEX idx_expenses_branch_name ON $_expensesTable(branchName)');
-    await db.execute('CREATE INDEX idx_expenses_category ON $_expensesTable(category)');
-    await db.execute('CREATE INDEX idx_expenses_synced ON $_expensesTable(isSynced)');
-    await db.execute('CREATE INDEX idx_expenses_expense_date ON $_expensesTable(expenseDate)');
-    await db.execute('CREATE INDEX idx_expenses_created_at ON $_expensesTable(createdAt)');
+    await db.execute(
+      'CREATE INDEX idx_expenses_branch_name ON $_expensesTable(branchName)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_expenses_category ON $_expensesTable(category)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_expenses_synced ON $_expensesTable(isSynced)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_expenses_expense_date ON $_expensesTable(expenseDate)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_expenses_created_at ON $_expensesTable(createdAt)',
+    );
 
     // Create petty cash table
     await db.execute('''
@@ -338,10 +471,18 @@ class DatabaseHelper {
     ''');
 
     // Create indexes for petty cash
-    await db.execute('CREATE INDEX idx_petty_cash_branch_name ON $_pettyCashTable(branchName)');
-    await db.execute('CREATE INDEX idx_petty_cash_synced ON $_pettyCashTable(isSynced)');
-    await db.execute('CREATE INDEX idx_petty_cash_date_applicable ON $_pettyCashTable(dateApplicable)');
-    await db.execute('CREATE INDEX idx_petty_cash_created_at ON $_pettyCashTable(createdAt)');
+    await db.execute(
+      'CREATE INDEX idx_petty_cash_branch_name ON $_pettyCashTable(branchName)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_petty_cash_synced ON $_pettyCashTable(isSynced)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_petty_cash_date_applicable ON $_pettyCashTable(dateApplicable)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_petty_cash_created_at ON $_pettyCashTable(createdAt)',
+    );
 
     // Create cash count table
     await db.execute('''
@@ -358,10 +499,18 @@ class DatabaseHelper {
     ''');
 
     // Create indexes for cash count
-    await db.execute('CREATE INDEX idx_cash_count_branch_name ON $_cashCountTable(branchName)');
-    await db.execute('CREATE INDEX idx_cash_count_synced ON $_cashCountTable(isSynced)');
-    await db.execute('CREATE INDEX idx_cash_count_date ON $_cashCountTable(cashbookDate)');
-    await db.execute('CREATE INDEX idx_cash_count_created_at ON $_cashCountTable(createdAt)');
+    await db.execute(
+      'CREATE INDEX idx_cash_count_branch_name ON $_cashCountTable(branchName)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_cash_count_synced ON $_cashCountTable(isSynced)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_cash_count_date ON $_cashCountTable(cashbookDate)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_cash_count_created_at ON $_cashCountTable(createdAt)',
+    );
 
     // Create cashbook downloads table
     await db.execute('''
@@ -378,10 +527,63 @@ class DatabaseHelper {
     ''');
 
     // Create indexes for cashbook downloads
-    await db.execute('CREATE INDEX idx_cashbook_downloads_branch ON $_cashbookDownloadsTable(branchName)');
-    await db.execute('CREATE INDEX idx_cashbook_downloads_status ON $_cashbookDownloadsTable(status)');
-    await db.execute('CREATE INDEX idx_cashbook_downloads_date ON $_cashbookDownloadsTable(cashbookDate)');
-    await db.execute('CREATE INDEX idx_cashbook_downloads_requested_at ON $_cashbookDownloadsTable(requestedAt)');
+    await db.execute(
+      'CREATE INDEX idx_cashbook_downloads_branch ON $_cashbookDownloadsTable(branchName)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_cashbook_downloads_status ON $_cashbookDownloadsTable(status)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_cashbook_downloads_date ON $_cashbookDownloadsTable(cashbookDate)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_cashbook_downloads_requested_at ON $_cashbookDownloadsTable(requestedAt)',
+    );
+
+    // Create collateral submissions table - version 15
+    await db.execute('''
+      CREATE TABLE $_collateralSubmissionsTable (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        submissionId TEXT NOT NULL UNIQUE,
+        clientId TEXT NOT NULL,
+        disbursementStartDate TEXT NOT NULL,
+        disbursementEndDate TEXT NOT NULL,
+        imageUrls TEXT NOT NULL, -- JSON array of image URLs
+        syncStatus TEXT NOT NULL DEFAULT 'synced',
+        lastSynced INTEGER NOT NULL,
+        createdAt INTEGER NOT NULL,
+        updatedAt INTEGER NOT NULL
+      )
+    ''');
+
+    // Create queued collateral submissions table - version 15
+    await db.execute('''
+      CREATE TABLE $_queuedCollateralSubmissionsTable (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        submissionId TEXT NOT NULL UNIQUE,
+        clientId TEXT NOT NULL,
+        disbursementStartDate TEXT NOT NULL,
+        disbursementEndDate TEXT NOT NULL,
+        imageFiles TEXT NOT NULL, -- JSON array of image data (base64 + extensions)
+        syncStatus TEXT NOT NULL DEFAULT 'queued',
+        syncAttempts INTEGER NOT NULL DEFAULT 0,
+        lastSyncError TEXT,
+        lastSyncAttempt INTEGER,
+        createdAt INTEGER NOT NULL,
+        updatedAt INTEGER NOT NULL
+      )
+    ''');
+
+    // Create indexes for collateral submissions
+    await db.execute(
+      'CREATE INDEX idx_collateral_submissions_client_id ON $_collateralSubmissionsTable(clientId)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_queued_collateral_submissions_client_id ON $_queuedCollateralSubmissionsTable(clientId)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_queued_collateral_submissions_sync_status ON $_queuedCollateralSubmissionsTable(syncStatus)',
+    );
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -430,9 +632,15 @@ class DatabaseHelper {
       ''');
 
       // Create indexes for disbursements
-      await db.execute('CREATE INDEX idx_disbursements_client_id ON $_disbursementTable(clientId)');
-      await db.execute('CREATE INDEX idx_disbursements_branch ON $_disbursementTable(branch)');
-      await db.execute('CREATE INDEX idx_disbursements_date ON $_disbursementTable(dateOfDisbursement)');
+      await db.execute(
+        'CREATE INDEX idx_disbursements_client_id ON $_disbursementTable(clientId)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_disbursements_branch ON $_disbursementTable(branch)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_disbursements_date ON $_disbursementTable(dateOfDisbursement)',
+      );
     }
 
     if (oldVersion < 3) {
@@ -459,13 +667,27 @@ class DatabaseHelper {
       ''');
 
       // Create indexes for repayments
-      await db.execute('CREATE INDEX idx_repayments_client_id ON $_repaymentTable(clientId)');
-      await db.execute('CREATE INDEX idx_repayments_disbursement_id ON $_repaymentTable(disbursementId)');
-      await db.execute('CREATE INDEX idx_repayments_receipt_number ON $_repaymentTable(receiptNumber)');
-      await db.execute('CREATE INDEX idx_repayments_currency ON $_repaymentTable(currency)');
-      await db.execute('CREATE INDEX idx_repayments_synced ON $_repaymentTable(isSynced)');
-      await db.execute('CREATE INDEX idx_repayments_branch ON $_repaymentTable(branch)');
-      await db.execute('CREATE INDEX idx_repayments_date ON $_repaymentTable(dateOfPayment)');
+      await db.execute(
+        'CREATE INDEX idx_repayments_client_id ON $_repaymentTable(clientId)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_repayments_disbursement_id ON $_repaymentTable(disbursementId)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_repayments_receipt_number ON $_repaymentTable(receiptNumber)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_repayments_currency ON $_repaymentTable(currency)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_repayments_synced ON $_repaymentTable(isSynced)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_repayments_branch ON $_repaymentTable(branch)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_repayments_date ON $_repaymentTable(dateOfPayment)',
+      );
     }
 
     if (oldVersion < 4) {
@@ -491,11 +713,21 @@ class DatabaseHelper {
       ''');
 
       // Create indexes for receipt numbers
-      await db.execute('CREATE INDEX idx_receipt_numbers_receipt_num ON $_receiptNumberTable(receiptNum)');
-      await db.execute('CREATE INDEX idx_receipt_numbers_is_used ON $_receiptNumberTable(isUsed)');
-      await db.execute('CREATE INDEX idx_receipt_numbers_branch ON $_receiptNumberTable(allocatedToBranch)');
-      await db.execute('CREATE INDEX idx_receipt_numbers_allocated_user ON $_receiptNumberTable(allocatedToUserId)');
-      await db.execute('CREATE INDEX idx_receipt_numbers_used_client ON $_receiptNumberTable(usedByClientId)');
+      await db.execute(
+        'CREATE INDEX idx_receipt_numbers_receipt_num ON $_receiptNumberTable(receiptNum)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_receipt_numbers_is_used ON $_receiptNumberTable(isUsed)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_receipt_numbers_branch ON $_receiptNumberTable(allocatedToBranch)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_receipt_numbers_allocated_user ON $_receiptNumberTable(allocatedToUserId)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_receipt_numbers_used_client ON $_receiptNumberTable(usedByClientId)',
+      );
     }
 
     if (oldVersion < 5) {
@@ -516,11 +748,21 @@ class DatabaseHelper {
       ''');
 
       // Create indexes for penalty fees
-      await db.execute('CREATE INDEX idx_penalty_fees_branch ON $_penaltyFeeTable(branch)');
-      await db.execute('CREATE INDEX idx_penalty_fees_client_name ON $_penaltyFeeTable(clientName)');
-      await db.execute('CREATE INDEX idx_penalty_fees_receipt_number ON $_penaltyFeeTable(receiptNumber)');
-      await db.execute('CREATE INDEX idx_penalty_fees_synced ON $_penaltyFeeTable(isSynced)');
-      await db.execute('CREATE INDEX idx_penalty_fees_date ON $_penaltyFeeTable(dateTimeCaptured)');
+      await db.execute(
+        'CREATE INDEX idx_penalty_fees_branch ON $_penaltyFeeTable(branch)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_penalty_fees_client_name ON $_penaltyFeeTable(clientName)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_penalty_fees_receipt_number ON $_penaltyFeeTable(receiptNumber)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_penalty_fees_synced ON $_penaltyFeeTable(isSynced)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_penalty_fees_date ON $_penaltyFeeTable(dateTimeCaptured)',
+      );
 
       // Create cancelled penalty fees table
       await db.execute('''
@@ -539,9 +781,15 @@ class DatabaseHelper {
       ''');
 
       // Create indexes for cancelled penalty fees
-      await db.execute('CREATE INDEX idx_cancelled_penalty_fees_branch ON $_cancelledPenaltyFeeTable(branch)');
-      await db.execute('CREATE INDEX idx_cancelled_penalty_fees_receipt_number ON $_cancelledPenaltyFeeTable(receiptNumber)');
-      await db.execute('CREATE INDEX idx_cancelled_penalty_fees_cancellation_id ON $_cancelledPenaltyFeeTable(cancellationId)');
+      await db.execute(
+        'CREATE INDEX idx_cancelled_penalty_fees_branch ON $_cancelledPenaltyFeeTable(branch)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_cancelled_penalty_fees_receipt_number ON $_cancelledPenaltyFeeTable(receiptNumber)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_cancelled_penalty_fees_cancellation_id ON $_cancelledPenaltyFeeTable(cancellationId)',
+      );
     }
 
     if (oldVersion < 6) {
@@ -556,8 +804,12 @@ class DatabaseHelper {
       ''');
 
       // Create indexes for all branches
-      await db.execute('CREATE INDEX idx_all_branches_name ON $_allBranchesTable(branchName)');
-      await db.execute('CREATE INDEX idx_all_branches_last_synced ON $_allBranchesTable(lastSynced)');
+      await db.execute(
+        'CREATE INDEX idx_all_branches_name ON $_allBranchesTable(branchName)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_all_branches_last_synced ON $_allBranchesTable(lastSynced)',
+      );
     }
 
     if (oldVersion < 7) {
@@ -580,12 +832,24 @@ class DatabaseHelper {
       ''');
 
       // Create indexes for transfers
-      await db.execute('CREATE INDEX idx_transfers_sending_branch ON $_transfersTable(sendingBranchId)');
-      await db.execute('CREATE INDEX idx_transfers_receiving_branch ON $_transfersTable(receivingBranchId)');
-      await db.execute('CREATE INDEX idx_transfers_transfer_type ON $_transfersTable(transferType)');
-      await db.execute('CREATE INDEX idx_transfers_synced ON $_transfersTable(isSynced)');
-      await db.execute('CREATE INDEX idx_transfers_date ON $_transfersTable(transferDate)');
-      await db.execute('CREATE INDEX idx_transfers_created_at ON $_transfersTable(createdAt)');
+      await db.execute(
+        'CREATE INDEX idx_transfers_sending_branch ON $_transfersTable(sendingBranchId)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_transfers_receiving_branch ON $_transfersTable(receivingBranchId)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_transfers_transfer_type ON $_transfersTable(transferType)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_transfers_synced ON $_transfersTable(isSynced)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_transfers_date ON $_transfersTable(transferDate)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_transfers_created_at ON $_transfersTable(createdAt)',
+      );
     }
 
     if (oldVersion < 8) {
@@ -604,11 +868,21 @@ class DatabaseHelper {
       ''');
 
       // Create indexes for expenses
-      await db.execute('CREATE INDEX idx_expenses_branch_name ON $_expensesTable(branchName)');
-      await db.execute('CREATE INDEX idx_expenses_category ON $_expensesTable(category)');
-      await db.execute('CREATE INDEX idx_expenses_synced ON $_expensesTable(isSynced)');
-      await db.execute('CREATE INDEX idx_expenses_expense_date ON $_expensesTable(expenseDate)');
-      await db.execute('CREATE INDEX idx_expenses_created_at ON $_expensesTable(createdAt)');
+      await db.execute(
+        'CREATE INDEX idx_expenses_branch_name ON $_expensesTable(branchName)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_expenses_category ON $_expensesTable(category)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_expenses_synced ON $_expensesTable(isSynced)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_expenses_expense_date ON $_expensesTable(expenseDate)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_expenses_created_at ON $_expensesTable(createdAt)',
+      );
     }
 
     if (oldVersion < 9) {
@@ -626,10 +900,18 @@ class DatabaseHelper {
       ''');
 
       // Create indexes for petty cash
-      await db.execute('CREATE INDEX idx_petty_cash_branch_name ON $_pettyCashTable(branchName)');
-      await db.execute('CREATE INDEX idx_petty_cash_synced ON $_pettyCashTable(isSynced)');
-      await db.execute('CREATE INDEX idx_petty_cash_date_applicable ON $_pettyCashTable(dateApplicable)');
-      await db.execute('CREATE INDEX idx_petty_cash_created_at ON $_pettyCashTable(createdAt)');
+      await db.execute(
+        'CREATE INDEX idx_petty_cash_branch_name ON $_pettyCashTable(branchName)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_petty_cash_synced ON $_pettyCashTable(isSynced)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_petty_cash_date_applicable ON $_pettyCashTable(dateApplicable)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_petty_cash_created_at ON $_pettyCashTable(createdAt)',
+      );
     }
 
     if (oldVersion < 10) {
@@ -648,10 +930,18 @@ class DatabaseHelper {
       ''');
 
       // Create indexes for cash count
-      await db.execute('CREATE INDEX idx_cash_count_branch_name ON $_cashCountTable(branchName)');
-      await db.execute('CREATE INDEX idx_cash_count_synced ON $_cashCountTable(isSynced)');
-      await db.execute('CREATE INDEX idx_cash_count_date ON $_cashCountTable(cashbookDate)');
-      await db.execute('CREATE INDEX idx_cash_count_created_at ON $_cashCountTable(createdAt)');
+      await db.execute(
+        'CREATE INDEX idx_cash_count_branch_name ON $_cashCountTable(branchName)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_cash_count_synced ON $_cashCountTable(isSynced)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_cash_count_date ON $_cashCountTable(cashbookDate)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_cash_count_created_at ON $_cashCountTable(createdAt)',
+      );
     }
 
     if (oldVersion < 11) {
@@ -670,10 +960,18 @@ class DatabaseHelper {
       ''');
 
       // Create indexes for cashbook downloads
-      await db.execute('CREATE INDEX idx_cashbook_downloads_branch ON $_cashbookDownloadsTable(branchName)');
-      await db.execute('CREATE INDEX idx_cashbook_downloads_status ON $_cashbookDownloadsTable(status)');
-      await db.execute('CREATE INDEX idx_cashbook_downloads_date ON $_cashbookDownloadsTable(cashbookDate)');
-      await db.execute('CREATE INDEX idx_cashbook_downloads_requested_at ON $_cashbookDownloadsTable(requestedAt)');
+      await db.execute(
+        'CREATE INDEX idx_cashbook_downloads_branch ON $_cashbookDownloadsTable(branchName)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_cashbook_downloads_status ON $_cashbookDownloadsTable(status)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_cashbook_downloads_date ON $_cashbookDownloadsTable(cashbookDate)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_cashbook_downloads_requested_at ON $_cashbookDownloadsTable(requestedAt)',
+      );
     }
 
     if (oldVersion < 12) {
@@ -694,10 +992,18 @@ class DatabaseHelper {
       ''');
 
       // Recreate indexes
-      await db.execute('CREATE INDEX idx_cashbook_downloads_branch ON $_cashbookDownloadsTable(branchName)');
-      await db.execute('CREATE INDEX idx_cashbook_downloads_status ON $_cashbookDownloadsTable(status)');
-      await db.execute('CREATE INDEX idx_cashbook_downloads_date ON $_cashbookDownloadsTable(cashbookDate)');
-      await db.execute('CREATE INDEX idx_cashbook_downloads_requested_at ON $_cashbookDownloadsTable(requestedAt)');
+      await db.execute(
+        'CREATE INDEX idx_cashbook_downloads_branch ON $_cashbookDownloadsTable(branchName)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_cashbook_downloads_status ON $_cashbookDownloadsTable(status)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_cashbook_downloads_date ON $_cashbookDownloadsTable(cashbookDate)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_cashbook_downloads_requested_at ON $_cashbookDownloadsTable(requestedAt)',
+      );
     }
 
     if (oldVersion < 13) {
@@ -717,10 +1023,126 @@ class DatabaseHelper {
       ''');
 
       // Create indexes for request balance
-      await db.execute('CREATE INDEX idx_request_balance_branch ON $_requestBalanceTable(branchName)');
-      await db.execute('CREATE INDEX idx_request_balance_status ON $_requestBalanceTable(status)');
-      await db.execute('CREATE INDEX idx_request_balance_date ON $_requestBalanceTable(cashbookDate)');
-      await db.execute('CREATE INDEX idx_request_balance_requested_at ON $_requestBalanceTable(requestedAt)');
+      await db.execute(
+        'CREATE INDEX idx_request_balance_branch ON $_requestBalanceTable(branchName)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_request_balance_status ON $_requestBalanceTable(status)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_request_balance_date ON $_requestBalanceTable(cashbookDate)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_request_balance_requested_at ON $_requestBalanceTable(requestedAt)',
+      );
+    }
+
+    if (oldVersion < 14) {
+      // Add client management features in version 14
+
+      // Add photo and syncStatus columns to existing clients table
+      await db.execute('ALTER TABLE $_clientTable ADD COLUMN photo TEXT');
+      await db.execute(
+        'ALTER TABLE $_clientTable ADD COLUMN syncStatus TEXT NOT NULL DEFAULT "synced"',
+      );
+
+      // Create queued clients table for offline-created clients
+      await db.execute('''
+        CREATE TABLE $_queuedClientsTable (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          clientId TEXT NOT NULL UNIQUE,
+          branchId INTEGER,
+          firstName TEXT NOT NULL,
+          lastName TEXT NOT NULL,
+          fullName TEXT NOT NULL,
+          branch TEXT NOT NULL,
+          whatsAppContact TEXT NOT NULL,
+          emailAddress TEXT,
+          nationalIdNumber TEXT NOT NULL,
+          capturedBy TEXT NOT NULL,
+          gender TEXT NOT NULL,
+          nextOfKinContact TEXT NOT NULL,
+          nextOfKinName TEXT NOT NULL,
+          relationshipWithNOK TEXT NOT NULL,
+          pin TEXT,
+          photo TEXT,
+          photoBytes BLOB,
+          photoExtension TEXT,
+          syncStatus TEXT NOT NULL DEFAULT 'queued',
+          createdAt INTEGER NOT NULL,
+          syncAttempts INTEGER NOT NULL DEFAULT 0,
+          lastSyncAttempt INTEGER,
+          syncError TEXT
+        )
+      ''');
+
+      // Create indexes for the new features
+      await db.execute(
+        'CREATE INDEX idx_clients_sync_status ON $_clientTable(syncStatus)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_queued_clients_sync_status ON $_queuedClientsTable(syncStatus)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_queued_clients_created_at ON $_queuedClientsTable(createdAt)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_queued_clients_branch ON $_queuedClientsTable(branch)',
+      );
+    }
+
+    if (oldVersion < 15) {
+      // Add collateral submission features in version 15
+      
+      // Create collateral submissions table
+      await db.execute('''
+        CREATE TABLE $_collateralSubmissionsTable (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          submissionId TEXT NOT NULL UNIQUE,
+          clientId TEXT NOT NULL,
+          disbursementStartDate TEXT NOT NULL,
+          disbursementEndDate TEXT NOT NULL,
+          imageUrls TEXT NOT NULL, -- JSON array of image URLs
+          syncStatus TEXT NOT NULL DEFAULT 'synced',
+          lastSynced INTEGER NOT NULL,
+          createdAt INTEGER NOT NULL,
+          updatedAt INTEGER NOT NULL
+        )
+      ''');
+
+      // Create queued collateral submissions table
+      await db.execute('''
+        CREATE TABLE $_queuedCollateralSubmissionsTable (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          submissionId TEXT NOT NULL UNIQUE,
+          clientId TEXT NOT NULL,
+          disbursementStartDate TEXT NOT NULL,
+          disbursementEndDate TEXT NOT NULL,
+          imageFiles TEXT NOT NULL, -- JSON array of image data
+          syncStatus TEXT NOT NULL DEFAULT 'queued',
+          syncAttempts INTEGER NOT NULL DEFAULT 0,
+          lastSyncError TEXT,
+          lastSyncAttempt INTEGER,
+          createdAt INTEGER NOT NULL,
+          updatedAt INTEGER NOT NULL
+        )
+      ''');
+
+      // Create indexes for collateral submissions
+      await db.execute(
+        'CREATE INDEX idx_collateral_submissions_client_id ON $_collateralSubmissionsTable(clientId)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_queued_collateral_submissions_client_id ON $_queuedCollateralSubmissionsTable(clientId)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_queued_collateral_submissions_sync_status ON $_queuedCollateralSubmissionsTable(syncStatus)',
+      );
+    }
+
+    if (oldVersion < 16) {
+      // Version 16: no-op, branchName was added and removed
+      // ALTER TABLE is a no-op on devices that already have the correct schema
     }
   }
 
@@ -728,11 +1150,11 @@ class DatabaseHelper {
   Future<int> insertUser(User user) async {
     final db = await database;
     final now = DateTime.now().millisecondsSinceEpoch;
-    
+
     final userMap = user.toMap();
     userMap['createdAt'] = now;
     userMap['updatedAt'] = now;
-    
+
     return await db.insert(_userTable, userMap);
   }
 
@@ -743,7 +1165,7 @@ class DatabaseHelper {
       limit: 1,
       orderBy: 'updatedAt DESC',
     );
-    
+
     if (results.isNotEmpty) {
       return User.fromMap(results.first);
     }
@@ -753,10 +1175,10 @@ class DatabaseHelper {
   Future<int> updateUser(User user) async {
     final db = await database;
     final now = DateTime.now().millisecondsSinceEpoch;
-    
+
     final userMap = user.toMap();
     userMap['updatedAt'] = now;
-    
+
     return await db.update(
       _userTable,
       userMap,
@@ -779,11 +1201,11 @@ class DatabaseHelper {
   Future<int> insertClient(Client client) async {
     final db = await database;
     final now = DateTime.now().millisecondsSinceEpoch;
-    
+
     final clientMap = client.toMap();
     clientMap['createdAt'] = now;
     clientMap['updatedAt'] = now;
-    
+
     return await db.insert(
       _clientTable,
       clientMap,
@@ -795,19 +1217,19 @@ class DatabaseHelper {
     final db = await database;
     final batch = db.batch();
     final now = DateTime.now().millisecondsSinceEpoch;
-    
+
     for (final client in clients) {
       final clientMap = client.toMap();
       clientMap['createdAt'] = now;
       clientMap['updatedAt'] = now;
-      
+
       batch.insert(
         _clientTable,
         clientMap,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
-    
+
     await batch.commit();
     return clients;
   }
@@ -818,14 +1240,14 @@ class DatabaseHelper {
       _clientTable,
       orderBy: 'fullName ASC',
     );
-    
+
     return results.map((map) => Client.fromMap(map)).toList();
   }
 
   Future<List<Client>> searchClients(String query) async {
     final db = await database;
     final searchQuery = '%$query%';
-    
+
     final List<Map<String, dynamic>> results = await db.query(
       _clientTable,
       where: '''
@@ -837,7 +1259,7 @@ class DatabaseHelper {
       whereArgs: [searchQuery, searchQuery, searchQuery, searchQuery],
       orderBy: 'fullName ASC',
     );
-    
+
     return results.map((map) => Client.fromMap(map)).toList();
   }
 
@@ -849,7 +1271,7 @@ class DatabaseHelper {
       whereArgs: [clientId],
       limit: 1,
     );
-    
+
     if (results.isNotEmpty) {
       return Client.fromMap(results.first);
     }
@@ -864,17 +1286,17 @@ class DatabaseHelper {
       whereArgs: [branch],
       orderBy: 'fullName ASC',
     );
-    
+
     return results.map((map) => Client.fromMap(map)).toList();
   }
 
   Future<int> updateClient(Client client) async {
     final db = await database;
     final now = DateTime.now().millisecondsSinceEpoch;
-    
+
     final clientMap = client.toMap();
     clientMap['updatedAt'] = now;
-    
+
     return await db.update(
       _clientTable,
       clientMap,
@@ -899,19 +1321,322 @@ class DatabaseHelper {
 
   Future<int> getClientsCount() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_clientTable');
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_clientTable',
+    );
     return result.first['count'] as int;
   }
 
   Future<DateTime?> getLastClientSyncTime() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT MAX(lastSynced) as lastSync FROM $_clientTable');
+    final result = await db.rawQuery(
+      'SELECT MAX(lastSynced) as lastSync FROM $_clientTable',
+    );
     final lastSync = result.first['lastSync'] as int?;
-    
+
     if (lastSync != null) {
       return DateTime.fromMillisecondsSinceEpoch(lastSync);
     }
     return null;
+  }
+
+  // Queued Clients operations
+  Future<int> insertQueuedClient(Map<String, dynamic> clientData) async {
+    final db = await database;
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    clientData['createdAt'] = now;
+
+    return await db.insert(
+      _queuedClientsTable,
+      clientData,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getQueuedClients() async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _queuedClientsTable,
+      orderBy: 'createdAt DESC',
+    );
+    return results;
+  }
+
+  Future<List<Map<String, dynamic>>> getQueuedClientsByStatus(
+    String status,
+  ) async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.query(
+      _queuedClientsTable,
+      where: 'syncStatus = ?',
+      whereArgs: [status],
+      orderBy: 'createdAt DESC',
+    );
+    return results;
+  }
+
+  Future<int> updateQueuedClientSyncAttempt(
+    String clientId,
+    String? error,
+  ) async {
+    final db = await database;
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    final Map<String, dynamic> updates = {
+      'syncAttempts': 'syncAttempts + 1',
+      'lastSyncAttempt': now,
+    };
+
+    if (error != null) {
+      updates['syncError'] = error;
+    }
+
+    return await db.rawUpdate(
+      '''
+      UPDATE $_queuedClientsTable 
+      SET syncAttempts = syncAttempts + 1, lastSyncAttempt = ?, syncError = ?
+      WHERE clientId = ?
+    ''',
+      [now, error, clientId],
+    );
+  }
+
+  Future<int> moveQueuedClientToSynced(
+    String queuedClientId,
+    String syncedClientId,
+  ) async {
+    final db = await database;
+
+    // Get the queued client data
+    final queuedResults = await db.query(
+      _queuedClientsTable,
+      where: 'clientId = ?',
+      whereArgs: [queuedClientId],
+      limit: 1,
+    );
+
+    if (queuedResults.isEmpty) {
+      return 0;
+    }
+
+    final queuedData = queuedResults.first;
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // Insert into main clients table
+    final mainClientData = {
+      'clientId': syncedClientId, // Use the new ID from server
+      'branchId': queuedData['branchId'],
+      'firstName': queuedData['firstName'],
+      'lastName': queuedData['lastName'],
+      'fullName': queuedData['fullName'],
+      'branch': queuedData['branch'],
+      'whatsAppContact': queuedData['whatsAppContact'],
+      'emailAddress': queuedData['emailAddress'],
+      'nationalIdNumber': queuedData['nationalIdNumber'],
+      'capturedBy': queuedData['capturedBy'],
+      'gender': queuedData['gender'],
+      'nextOfKinContact': queuedData['nextOfKinContact'],
+      'nextOfKinName': queuedData['nextOfKinName'],
+      'relationshipWithNOK': queuedData['relationshipWithNOK'],
+      'pin': queuedData['pin'],
+      'photo': queuedData['photo'],
+      'syncStatus': 'synced',
+      'lastSynced': now,
+      'createdAt': queuedData['createdAt'],
+      'updatedAt': now,
+    };
+
+    await db.insert(
+      _clientTable,
+      mainClientData,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+
+    // Delete from queued table
+    return await db.delete(
+      _queuedClientsTable,
+      where: 'clientId = ?',
+      whereArgs: [queuedClientId],
+    );
+  }
+
+  Future<int> deleteQueuedClient(String clientId) async {
+    final db = await database;
+    return await db.delete(
+      _queuedClientsTable,
+      where: 'clientId = ?',
+      whereArgs: [clientId],
+    );
+  }
+
+  Future<int> getQueuedClientsCount() async {
+    final db = await database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_queuedClientsTable',
+    );
+    return result.first['count'] as int;
+  }
+
+  Future<List<Client>> getSyncedClientsOlderThan24Hours() async {
+    final db = await database;
+    final oneDayAgo = DateTime.now()
+        .subtract(const Duration(days: 1))
+        .millisecondsSinceEpoch;
+
+    final List<Map<String, dynamic>> results = await db.query(
+      _clientTable,
+      where: 'syncStatus = ? AND lastSynced < ?',
+      whereArgs: ['synced', oneDayAgo],
+      orderBy: 'lastSynced ASC',
+    );
+
+    return results.map((map) => Client.fromMap(map)).toList();
+  }
+
+  Future<int> deleteSyncedClientsOlderThan24Hours() async {
+    final db = await database;
+    final oneDayAgo = DateTime.now()
+        .subtract(const Duration(days: 1))
+        .millisecondsSinceEpoch;
+
+    return await db.delete(
+      _clientTable,
+      where: 'syncStatus = ? AND lastSynced < ?',
+      whereArgs: ['synced', oneDayAgo],
+    );
+  }
+
+  // Collateral Submission operations
+  Future<int> insertQueuedCollateralSubmission(Map<String, dynamic> submissionData) async {
+    final db = await database;
+    return await db.insert(
+      _queuedCollateralSubmissionsTable,
+      submissionData,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getQueuedCollateralSubmissions() async {
+    final db = await database;
+    return await db.query(
+      _queuedCollateralSubmissionsTable,
+      orderBy: 'createdAt DESC',
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getQueuedCollateralSubmissionsByStatus(String status) async {
+    final db = await database;
+    return await db.query(
+      _queuedCollateralSubmissionsTable,
+      where: 'syncStatus = ?',
+      whereArgs: [status],
+      orderBy: 'createdAt DESC',
+    );
+  }
+
+  Future<int> updateQueuedCollateralSubmissionSyncAttempt(
+    String submissionId,
+    String errorMessage,
+  ) async {
+    final db = await database;
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    return await db.update(
+      _queuedCollateralSubmissionsTable,
+      {
+        'syncAttempts': 'syncAttempts + 1',
+        'lastSyncAttempt': now,
+        'lastSyncError': errorMessage,
+        'updatedAt': now,
+      },
+      where: 'submissionId = ?',
+      whereArgs: [submissionId],
+    );
+  }
+
+  Future<int> moveQueuedCollateralSubmissionToSynced(
+    String queuedSubmissionId,
+    String syncedSubmissionId,
+    List<String> imageUrls,
+  ) async {
+    final db = await database;
+
+    // Get the queued submission data
+    final queuedResults = await db.query(
+      _queuedCollateralSubmissionsTable,
+      where: 'submissionId = ?',
+      whereArgs: [queuedSubmissionId],
+      limit: 1,
+    );
+
+    if (queuedResults.isEmpty) {
+      return 0;
+    }
+
+    final queuedData = queuedResults.first;
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // Insert into main collateral submissions table
+    final mainSubmissionData = {
+      'submissionId': syncedSubmissionId,
+      'clientId': queuedData['clientId'],
+      'disbursementStartDate': queuedData['disbursementStartDate'],
+      'disbursementEndDate': queuedData['disbursementEndDate'],
+      'imageUrls': jsonEncode(imageUrls),
+      'syncStatus': 'synced',
+      'lastSynced': now,
+      'createdAt': queuedData['createdAt'],
+      'updatedAt': now,
+    };
+
+    await db.insert(
+      _collateralSubmissionsTable,
+      mainSubmissionData,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+
+    // Delete from queued table
+    return await db.delete(
+      _queuedCollateralSubmissionsTable,
+      where: 'submissionId = ?',
+      whereArgs: [queuedSubmissionId],
+    );
+  }
+
+  Future<int> deleteQueuedCollateralSubmission(String submissionId) async {
+    final db = await database;
+    return await db.delete(
+      _queuedCollateralSubmissionsTable,
+      where: 'submissionId = ?',
+      whereArgs: [submissionId],
+    );
+  }
+
+  Future<int> getQueuedCollateralSubmissionsCount() async {
+    final db = await database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_queuedCollateralSubmissionsTable',
+    );
+    return result.first['count'] as int;
+  }
+
+  Future<List<Map<String, dynamic>>> getSyncedCollateralSubmissions() async {
+    final db = await database;
+    return await db.query(
+      _collateralSubmissionsTable,
+      orderBy: 'createdAt DESC',
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getCollateralSubmissionsByClientId(String clientId) async {
+    final db = await database;
+    return await db.query(
+      _collateralSubmissionsTable,
+      where: 'clientId = ?',
+      whereArgs: [clientId],
+      orderBy: 'createdAt DESC',
+    );
   }
 
   // Database utilities
@@ -927,13 +1652,23 @@ class DatabaseHelper {
 
   Future<Map<String, int>> getDatabaseStats() async {
     final db = await database;
-    
-    final userCount = await db.rawQuery('SELECT COUNT(*) as count FROM $_userTable');
-    final clientCount = await db.rawQuery('SELECT COUNT(*) as count FROM $_clientTable');
-    final disbursementCount = await db.rawQuery('SELECT COUNT(*) as count FROM $_disbursementTable');
-    final repaymentCount = await db.rawQuery('SELECT COUNT(*) as count FROM $_repaymentTable');
-    final receiptNumberCount = await db.rawQuery('SELECT COUNT(*) as count FROM $_receiptNumberTable');
-    
+
+    final userCount = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_userTable',
+    );
+    final clientCount = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_clientTable',
+    );
+    final disbursementCount = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_disbursementTable',
+    );
+    final repaymentCount = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_repaymentTable',
+    );
+    final receiptNumberCount = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_receiptNumberTable',
+    );
+
     return {
       'users': userCount.first['count'] as int,
       'clients': clientCount.first['count'] as int,
@@ -947,12 +1682,12 @@ class DatabaseHelper {
   Future<int> insertDisbursement(Disbursement disbursement) async {
     final db = await database;
     final now = DateTime.now().millisecondsSinceEpoch;
-    
+
     final disbursementMap = disbursement.toMap();
     disbursementMap['lastSynced'] = now;
     disbursementMap['createdAt'] = now;
     disbursementMap['updatedAt'] = now;
-    
+
     return await db.insert(
       _disbursementTable,
       disbursementMap,
@@ -960,24 +1695,26 @@ class DatabaseHelper {
     );
   }
 
-  Future<List<Disbursement>> insertMultipleDisbursements(List<Disbursement> disbursements) async {
+  Future<List<Disbursement>> insertMultipleDisbursements(
+    List<Disbursement> disbursements,
+  ) async {
     final db = await database;
     final batch = db.batch();
     final now = DateTime.now().millisecondsSinceEpoch;
-    
+
     for (final disbursement in disbursements) {
       final disbursementMap = disbursement.toMap();
       disbursementMap['lastSynced'] = now;
       disbursementMap['createdAt'] = now;
       disbursementMap['updatedAt'] = now;
-      
+
       batch.insert(
         _disbursementTable,
         disbursementMap,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
-    
+
     await batch.commit();
     return disbursements;
   }
@@ -990,7 +1727,7 @@ class DatabaseHelper {
       whereArgs: [clientId],
       orderBy: 'dateOfDisbursement DESC',
     );
-    
+
     return results.map((map) => Disbursement.fromMap(map)).toList();
   }
 
@@ -1000,7 +1737,7 @@ class DatabaseHelper {
       _disbursementTable,
       orderBy: 'dateOfDisbursement DESC',
     );
-    
+
     return results.map((map) => Disbursement.fromMap(map)).toList();
   }
 
@@ -1012,7 +1749,7 @@ class DatabaseHelper {
       whereArgs: [branch],
       orderBy: 'dateOfDisbursement DESC',
     );
-    
+
     return results.map((map) => Disbursement.fromMap(map)).toList();
   }
 
@@ -1024,7 +1761,7 @@ class DatabaseHelper {
       whereArgs: [currentId],
       limit: 1,
     );
-    
+
     if (results.isNotEmpty) {
       return Disbursement.fromMap(results.first);
     }
@@ -1034,10 +1771,10 @@ class DatabaseHelper {
   Future<int> updateDisbursement(Disbursement disbursement) async {
     final db = await database;
     final now = DateTime.now().millisecondsSinceEpoch;
-    
+
     final disbursementMap = disbursement.toMap();
     disbursementMap['updatedAt'] = now;
-    
+
     return await db.update(
       _disbursementTable,
       disbursementMap,
@@ -1072,7 +1809,7 @@ class DatabaseHelper {
   Future<int> getDisbursementsCount() async {
     final db = await database;
     final List<Map<String, dynamic>> results = await db.rawQuery(
-      'SELECT COUNT(*) as count FROM $_disbursementTable'
+      'SELECT COUNT(*) as count FROM $_disbursementTable',
     );
     return results.first['count'] as int;
   }
@@ -1100,17 +1837,18 @@ class DatabaseHelper {
       ) d ON c.clientId = d.clientId
       ORDER BY c.fullName ASC
     ''');
-    
+
     return results;
   }
+
   // Repayment operations
   Future<int> insertRepayment(Repayment repayment) async {
     final db = await database;
     final now = DateTime.now().millisecondsSinceEpoch;
-    
+
     final repaymentMap = repayment.toMap();
     repaymentMap['createdAt'] = now;
-    
+
     return await db.insert(
       _repaymentTable,
       repaymentMap,
@@ -1118,22 +1856,24 @@ class DatabaseHelper {
     );
   }
 
-  Future<List<Repayment>> insertMultipleRepayments(List<Repayment> repayments) async {
+  Future<List<Repayment>> insertMultipleRepayments(
+    List<Repayment> repayments,
+  ) async {
     final db = await database;
     final batch = db.batch();
     final now = DateTime.now().millisecondsSinceEpoch;
-    
+
     for (final repayment in repayments) {
       final repaymentMap = repayment.toMap();
       repaymentMap['createdAt'] = now;
-      
+
       batch.insert(
         _repaymentTable,
         repaymentMap,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
-    
+
     await batch.commit();
     return repayments;
   }
@@ -1146,7 +1886,7 @@ class DatabaseHelper {
       whereArgs: [clientId],
       orderBy: 'dateOfPayment DESC',
     );
-    
+
     return results.map((map) => Repayment.fromMap(map)).toList();
   }
 
@@ -1158,7 +1898,7 @@ class DatabaseHelper {
       whereArgs: [0],
       orderBy: 'createdAt ASC',
     );
-    
+
     return results.map((map) => Repayment.fromMap(map)).toList();
   }
 
@@ -1170,7 +1910,7 @@ class DatabaseHelper {
       whereArgs: [1],
       orderBy: 'syncedAt DESC',
     );
-    
+
     return results.map((map) => Repayment.fromMap(map)).toList();
   }
 
@@ -1182,7 +1922,7 @@ class DatabaseHelper {
       whereArgs: [currency],
       orderBy: 'dateOfPayment DESC',
     );
-    
+
     return results.map((map) => Repayment.fromMap(map)).toList();
   }
 
@@ -1192,7 +1932,7 @@ class DatabaseHelper {
       _repaymentTable,
       orderBy: 'dateOfPayment DESC',
     );
-    
+
     return results.map((map) => Repayment.fromMap(map)).toList();
   }
 
@@ -1204,26 +1944,30 @@ class DatabaseHelper {
       whereArgs: [receiptNumber],
       limit: 1,
     );
-    
+
     if (results.isNotEmpty) {
       return Repayment.fromMap(results.first);
     }
     return null;
   }
 
-  Future<int> updateRepaymentSyncStatus(String receiptNumber, bool isSynced, {String? syncResponse}) async {
+  Future<int> updateRepaymentSyncStatus(
+    String receiptNumber,
+    bool isSynced, {
+    String? syncResponse,
+  }) async {
     final db = await database;
     final now = DateTime.now().millisecondsSinceEpoch;
-    
+
     final updateData = <String, dynamic>{
       'isSynced': isSynced ? 1 : 0,
       'syncResponse': syncResponse,
     };
-    
+
     if (isSynced) {
       updateData['syncedAt'] = now;
     }
-    
+
     return await db.update(
       _repaymentTable,
       updateData,
@@ -1258,7 +2002,7 @@ class DatabaseHelper {
   Future<int> getRepaymentsCount() async {
     final db = await database;
     final List<Map<String, dynamic>> results = await db.rawQuery(
-      'SELECT COUNT(*) as count FROM $_repaymentTable'
+      'SELECT COUNT(*) as count FROM $_repaymentTable',
     );
     return results.first['count'] as int;
   }
@@ -1266,7 +2010,7 @@ class DatabaseHelper {
   Future<int> getUnsyncedRepaymentsCount() async {
     final db = await database;
     final List<Map<String, dynamic>> results = await db.rawQuery(
-      'SELECT COUNT(*) as count FROM $_repaymentTable WHERE isSynced = 0'
+      'SELECT COUNT(*) as count FROM $_repaymentTable WHERE isSynced = 0',
     );
     return results.first['count'] as int;
   }
@@ -1297,7 +2041,7 @@ class DatabaseHelper {
       WHERE isSynced = 1
       GROUP BY currency
     ''');
-    
+
     final Map<String, double> totals = {};
     for (final result in results) {
       totals[result['currency']] = (result['total'] ?? 0.0).toDouble();
@@ -1323,7 +2067,7 @@ class DatabaseHelper {
       ) r ON c.clientId = r.clientId
       ORDER BY c.fullName ASC
     ''');
-    
+
     return results;
   }
 
@@ -1337,10 +2081,12 @@ class DatabaseHelper {
     );
   }
 
-  Future<List<ReceiptNumber>> insertMultipleReceiptNumbers(List<ReceiptNumber> receiptNumbers) async {
+  Future<List<ReceiptNumber>> insertMultipleReceiptNumbers(
+    List<ReceiptNumber> receiptNumbers,
+  ) async {
     final db = await database;
     final batch = db.batch();
-    
+
     for (final receiptNumber in receiptNumbers) {
       batch.insert(
         _receiptNumberTable,
@@ -1348,7 +2094,7 @@ class DatabaseHelper {
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
-    
+
     await batch.commit();
     return receiptNumbers;
   }
@@ -1361,7 +2107,7 @@ class DatabaseHelper {
       whereArgs: [0],
       orderBy: 'id ASC',
     );
-    
+
     return results.map((map) => ReceiptNumber.fromMap(map)).toList();
   }
 
@@ -1373,7 +2119,7 @@ class DatabaseHelper {
       whereArgs: [1],
       orderBy: 'usedAt DESC',
     );
-    
+
     return results.map((map) => ReceiptNumber.fromMap(map)).toList();
   }
 
@@ -1383,7 +2129,7 @@ class DatabaseHelper {
       _receiptNumberTable,
       orderBy: 'id ASC',
     );
-    
+
     return results.map((map) => ReceiptNumber.fromMap(map)).toList();
   }
 
@@ -1396,7 +2142,7 @@ class DatabaseHelper {
       orderBy: 'id ASC',
       limit: 1,
     );
-    
+
     if (results.isNotEmpty) {
       return ReceiptNumber.fromMap(results.first);
     }
@@ -1411,7 +2157,7 @@ class DatabaseHelper {
       whereArgs: [receiptNum],
       limit: 1,
     );
-    
+
     if (results.isNotEmpty) {
       return ReceiptNumber.fromMap(results.first);
     }
@@ -1426,7 +2172,7 @@ class DatabaseHelper {
       whereArgs: [id],
       limit: 1,
     );
-    
+
     if (results.isNotEmpty) {
       return ReceiptNumber.fromMap(results.first);
     }
@@ -1442,7 +2188,7 @@ class DatabaseHelper {
   }) async {
     final db = await database;
     final now = DateTime.now().millisecondsSinceEpoch;
-    
+
     return await db.update(
       _receiptNumberTable,
       {
@@ -1461,7 +2207,7 @@ class DatabaseHelper {
   Future<List<ReceiptNumber>> searchReceiptNumbers(String query) async {
     final db = await database;
     final searchQuery = '%$query%';
-    
+
     final List<Map<String, dynamic>> results = await db.query(
       _receiptNumberTable,
       where: '''
@@ -1471,10 +2217,16 @@ class DatabaseHelper {
         usedByClientName LIKE ? OR
         usedByClientId LIKE ?
       ''',
-      whereArgs: [searchQuery, searchQuery, searchQuery, searchQuery, searchQuery],
+      whereArgs: [
+        searchQuery,
+        searchQuery,
+        searchQuery,
+        searchQuery,
+        searchQuery,
+      ],
       orderBy: 'id ASC',
     );
-    
+
     return results.map((map) => ReceiptNumber.fromMap(map)).toList();
   }
 
@@ -1486,25 +2238,31 @@ class DatabaseHelper {
       whereArgs: [branch],
       orderBy: 'id ASC',
     );
-    
+
     return results.map((map) => ReceiptNumber.fromMap(map)).toList();
   }
 
   Future<int> getUnusedReceiptNumbersCount() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_receiptNumberTable WHERE isUsed = 0');
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_receiptNumberTable WHERE isUsed = 0',
+    );
     return result.first['count'] as int;
   }
 
   Future<int> getUsedReceiptNumbersCount() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_receiptNumberTable WHERE isUsed = 1');
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_receiptNumberTable WHERE isUsed = 1',
+    );
     return result.first['count'] as int;
   }
 
   Future<int> getTotalReceiptNumbersCount() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_receiptNumberTable');
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_receiptNumberTable',
+    );
     return result.first['count'] as int;
   }
 
@@ -1516,11 +2274,17 @@ class DatabaseHelper {
   /// Get receipt numbers summary stats
   Future<Map<String, int>> getReceiptNumbersStats() async {
     final db = await database;
-    
-    final unusedResult = await db.rawQuery('SELECT COUNT(*) as count FROM $_receiptNumberTable WHERE isUsed = 0');
-    final usedResult = await db.rawQuery('SELECT COUNT(*) as count FROM $_receiptNumberTable WHERE isUsed = 1');
-    final totalResult = await db.rawQuery('SELECT COUNT(*) as count FROM $_receiptNumberTable');
-    
+
+    final unusedResult = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_receiptNumberTable WHERE isUsed = 0',
+    );
+    final usedResult = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_receiptNumberTable WHERE isUsed = 1',
+    );
+    final totalResult = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_receiptNumberTable',
+    );
+
     return {
       'unused': unusedResult.first['count'] as int,
       'used': usedResult.first['count'] as int,
@@ -1532,10 +2296,10 @@ class DatabaseHelper {
   Future<int> insertPenaltyFee(PenaltyFee penaltyFee) async {
     final db = await database;
     final now = DateTime.now().millisecondsSinceEpoch;
-    
+
     final penaltyFeeMap = penaltyFee.toMap();
     penaltyFeeMap['createdAt'] = now;
-    
+
     return await db.insert(_penaltyFeeTable, penaltyFeeMap);
   }
 
@@ -1615,10 +2379,7 @@ class DatabaseHelper {
     final db = await database;
     return await db.update(
       _penaltyFeeTable,
-      {
-        'isSynced': 1,
-        'syncedAt': DateTime.now().toIso8601String(),
-      },
+      {'isSynced': 1, 'syncedAt': DateTime.now().toIso8601String()},
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -1626,28 +2387,30 @@ class DatabaseHelper {
 
   Future<int> deletePenaltyFee(String id) async {
     final db = await database;
-    return await db.delete(
-      _penaltyFeeTable,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    return await db.delete(_penaltyFeeTable, where: 'id = ?', whereArgs: [id]);
   }
 
   Future<int> getPenaltyFeesCount() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_penaltyFeeTable');
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_penaltyFeeTable',
+    );
     return result.first['count'] as int;
   }
 
   Future<int> getUnsyncedPenaltyFeesCount() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_penaltyFeeTable WHERE isSynced = 0');
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_penaltyFeeTable WHERE isSynced = 0',
+    );
     return result.first['count'] as int;
   }
 
   Future<int> getSyncedPenaltyFeesCount() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_penaltyFeeTable WHERE isSynced = 1');
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_penaltyFeeTable WHERE isSynced = 1',
+    );
     return result.first['count'] as int;
   }
 
@@ -1684,10 +2447,16 @@ class DatabaseHelper {
   Future<Map<String, int>> getPenaltyFeesStats() async {
     final db = await database;
 
-    final unsyncedResult = await db.rawQuery('SELECT COUNT(*) as count FROM $_penaltyFeeTable WHERE isSynced = 0');
-    final syncedResult = await db.rawQuery('SELECT COUNT(*) as count FROM $_penaltyFeeTable WHERE isSynced = 1');
-    final totalResult = await db.rawQuery('SELECT COUNT(*) as count FROM $_penaltyFeeTable');
-    
+    final unsyncedResult = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_penaltyFeeTable WHERE isSynced = 0',
+    );
+    final syncedResult = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_penaltyFeeTable WHERE isSynced = 1',
+    );
+    final totalResult = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_penaltyFeeTable',
+    );
+
     return {
       'unsynced': unsyncedResult.first['count'] as int,
       'synced': syncedResult.first['count'] as int,
@@ -1696,9 +2465,14 @@ class DatabaseHelper {
   }
 
   // Cancelled Penalty Fee operations
-  Future<int> insertCancelledPenaltyFee(CancelledPenaltyFee cancelledPenaltyFee) async {
+  Future<int> insertCancelledPenaltyFee(
+    CancelledPenaltyFee cancelledPenaltyFee,
+  ) async {
     final db = await database;
-    return await db.insert(_cancelledPenaltyFeeTable, cancelledPenaltyFee.toMap());
+    return await db.insert(
+      _cancelledPenaltyFeeTable,
+      cancelledPenaltyFee.toMap(),
+    );
   }
 
   Future<List<CancelledPenaltyFee>> getAllCancelledPenaltyFees() async {
@@ -1711,7 +2485,9 @@ class DatabaseHelper {
     return results.map((map) => CancelledPenaltyFee.fromMap(map)).toList();
   }
 
-  Future<List<CancelledPenaltyFee>> getCancelledPenaltyFeesByBranch(String branch) async {
+  Future<List<CancelledPenaltyFee>> getCancelledPenaltyFeesByBranch(
+    String branch,
+  ) async {
     final db = await database;
     final List<Map<String, dynamic>> results = await db.query(
       _cancelledPenaltyFeeTable,
@@ -1723,7 +2499,9 @@ class DatabaseHelper {
     return results.map((map) => CancelledPenaltyFee.fromMap(map)).toList();
   }
 
-  Future<CancelledPenaltyFee?> getCancelledPenaltyFeeByReceiptNumber(String receiptNumber) async {
+  Future<CancelledPenaltyFee?> getCancelledPenaltyFeeByReceiptNumber(
+    String receiptNumber,
+  ) async {
     final db = await database;
     final List<Map<String, dynamic>> results = await db.query(
       _cancelledPenaltyFeeTable,
@@ -1748,7 +2526,9 @@ class DatabaseHelper {
 
   Future<int> getCancelledPenaltyFeesCount() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_cancelledPenaltyFeeTable');
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_cancelledPenaltyFeeTable',
+    );
     return result.first['count'] as int;
   }
 
@@ -1770,7 +2550,7 @@ class DatabaseHelper {
   Future<List<Branch>> insertMultipleBranches(List<Branch> branches) async {
     final db = await database;
     final batch = db.batch();
-    
+
     for (final branch in branches) {
       batch.insert(
         _allBranchesTable,
@@ -1778,7 +2558,7 @@ class DatabaseHelper {
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
-    
+
     await batch.commit();
     return branches;
   }
@@ -1825,7 +2605,9 @@ class DatabaseHelper {
 
   Future<int> getBranchesCount() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_allBranchesTable');
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_allBranchesTable',
+    );
     return result.first['count'] as int;
   }
 
@@ -1874,11 +2656,11 @@ class DatabaseHelper {
   /// Insert a new transfer
   Future<int> insertTransfer(Transfer transfer) async {
     final db = await database;
-    
+
     final transferMap = transfer.toMap();
     // Remove id for insertion
     transferMap.remove('id');
-    
+
     return await db.insert(
       _transfersTable,
       transferMap,
@@ -1893,7 +2675,7 @@ class DatabaseHelper {
       _transfersTable,
       orderBy: 'createdAt DESC',
     );
-    
+
     return results.map((map) => Transfer.fromMap(map)).toList();
   }
 
@@ -1906,7 +2688,7 @@ class DatabaseHelper {
       whereArgs: [0],
       orderBy: 'createdAt DESC',
     );
-    
+
     return results.map((map) => Transfer.fromMap(map)).toList();
   }
 
@@ -1919,7 +2701,7 @@ class DatabaseHelper {
       whereArgs: [1],
       orderBy: 'syncedAt DESC',
     );
-    
+
     return results.map((map) => Transfer.fromMap(map)).toList();
   }
 
@@ -1932,7 +2714,7 @@ class DatabaseHelper {
       whereArgs: [transferType],
       orderBy: 'createdAt DESC',
     );
-    
+
     return results.map((map) => Transfer.fromMap(map)).toList();
   }
 
@@ -1945,7 +2727,7 @@ class DatabaseHelper {
       whereArgs: [branchId],
       orderBy: 'createdAt DESC',
     );
-    
+
     return results.map((map) => Transfer.fromMap(map)).toList();
   }
 
@@ -1958,22 +2740,20 @@ class DatabaseHelper {
       whereArgs: [branchId],
       orderBy: 'createdAt DESC',
     );
-    
+
     return results.map((map) => Transfer.fromMap(map)).toList();
   }
 
   /// Update transfer sync status
   Future<int> updateTransferSyncStatus(int transferId, bool isSynced) async {
     final db = await database;
-    
-    final updateData = <String, dynamic>{
-      'isSynced': isSynced ? 1 : 0,
-    };
-    
+
+    final updateData = <String, dynamic>{'isSynced': isSynced ? 1 : 0};
+
     if (isSynced) {
       updateData['syncedAt'] = DateTime.now().toIso8601String();
     }
-    
+
     return await db.update(
       _transfersTable,
       updateData,
@@ -1995,8 +2775,10 @@ class DatabaseHelper {
   /// Delete expired transfers (queued for more than 24 hours)
   Future<int> deleteExpiredTransfers() async {
     final db = await database;
-    final twentyFourHoursAgo = DateTime.now().subtract(Duration(hours: 24)).toIso8601String();
-    
+    final twentyFourHoursAgo = DateTime.now()
+        .subtract(Duration(hours: 24))
+        .toIso8601String();
+
     return await db.delete(
       _transfersTable,
       where: 'isSynced = ? AND createdAt < ?',
@@ -2007,8 +2789,10 @@ class DatabaseHelper {
   /// Delete synced transfers older than 7 days
   Future<int> deleteOldSyncedTransfers() async {
     final db = await database;
-    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
-    
+    final sevenDaysAgo = DateTime.now()
+        .subtract(Duration(days: 7))
+        .toIso8601String();
+
     return await db.delete(
       _transfersTable,
       where: 'isSynced = ? AND syncedAt < ?',
@@ -2025,7 +2809,7 @@ class DatabaseHelper {
       whereArgs: [transferId],
       limit: 1,
     );
-    
+
     if (results.isNotEmpty) {
       return Transfer.fromMap(results.first);
     }
@@ -2035,28 +2819,36 @@ class DatabaseHelper {
   /// Count queued transfers
   Future<int> getQueuedTransfersCount() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_transfersTable WHERE isSynced = 0');
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_transfersTable WHERE isSynced = 0',
+    );
     return result.first['count'] as int;
   }
 
   /// Count synced transfers
   Future<int> getSyncedTransfersCount() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_transfersTable WHERE isSynced = 1');
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_transfersTable WHERE isSynced = 1',
+    );
     return result.first['count'] as int;
   }
 
   /// Get total transfer amount by type for reporting
-  Future<double> getTotalTransferAmountByType(String transferType, {bool? isSynced}) async {
+  Future<double> getTotalTransferAmountByType(
+    String transferType, {
+    bool? isSynced,
+  }) async {
     final db = await database;
-    String query = 'SELECT COALESCE(SUM(amount), 0.0) as total FROM $_transfersTable WHERE transferType = ?';
+    String query =
+        'SELECT COALESCE(SUM(amount), 0.0) as total FROM $_transfersTable WHERE transferType = ?';
     List<dynamic> args = [transferType];
-    
+
     if (isSynced != null) {
       query += ' AND isSynced = ?';
       args.add(isSynced ? 1 : 0);
     }
-    
+
     final result = await db.rawQuery(query, args);
     return result.first['total'] as double;
   }
@@ -2064,18 +2856,20 @@ class DatabaseHelper {
   /// Check if user can create transfer (not exceeding any limits if needed)
   Future<bool> canUserCreateTransfer(int sendingBranchId) async {
     final db = await database;
-    
+
     // Check for any pending transfers from the same branch in the last hour
     // This prevents spam/duplicate submissions
-    final oneHourAgo = DateTime.now().subtract(Duration(hours: 1)).toIso8601String();
-    
+    final oneHourAgo = DateTime.now()
+        .subtract(Duration(hours: 1))
+        .toIso8601String();
+
     final result = await db.rawQuery(
       'SELECT COUNT(*) as count FROM $_transfersTable WHERE sendingBranchId = ? AND isSynced = 0 AND createdAt > ?',
-      [sendingBranchId, oneHourAgo]
+      [sendingBranchId, oneHourAgo],
     );
-    
+
     int pendingTransfers = result.first['count'] as int;
-    
+
     // Allow up to 10 pending transfers per hour per branch (adjustable)
     return pendingTransfers < 10;
   }
@@ -2092,11 +2886,11 @@ class DatabaseHelper {
   /// Insert a new expense
   Future<int> insertExpense(Expense expense) async {
     final db = await database;
-    
+
     final expenseMap = expense.toMap();
     // Remove id for insertion
     expenseMap.remove('id');
-    
+
     return await db.insert(
       _expensesTable,
       expenseMap,
@@ -2111,7 +2905,7 @@ class DatabaseHelper {
       _expensesTable,
       orderBy: 'createdAt DESC',
     );
-    
+
     return results.map((map) => Expense.fromMap(map)).toList();
   }
 
@@ -2124,22 +2918,24 @@ class DatabaseHelper {
       whereArgs: [0],
       orderBy: 'createdAt DESC',
     );
-    
+
     return results.map((map) => Expense.fromMap(map)).toList();
   }
 
   /// Get synced expenses (not expired)
   Future<List<Expense>> getSyncedExpenses() async {
     final db = await database;
-    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
-    
+    final sevenDaysAgo = DateTime.now()
+        .subtract(Duration(days: 7))
+        .toIso8601String();
+
     final List<Map<String, dynamic>> results = await db.query(
       _expensesTable,
       where: 'isSynced = ? AND syncedAt > ?',
       whereArgs: [1, sevenDaysAgo],
       orderBy: 'syncedAt DESC',
     );
-    
+
     return results.map((map) => Expense.fromMap(map)).toList();
   }
 
@@ -2152,7 +2948,7 @@ class DatabaseHelper {
       whereArgs: [category],
       orderBy: 'createdAt DESC',
     );
-    
+
     return results.map((map) => Expense.fromMap(map)).toList();
   }
 
@@ -2165,7 +2961,7 @@ class DatabaseHelper {
       whereArgs: [branchName],
       orderBy: 'createdAt DESC',
     );
-    
+
     return results.map((map) => Expense.fromMap(map)).toList();
   }
 
@@ -2174,30 +2970,32 @@ class DatabaseHelper {
     final db = await database;
     final List<Map<String, dynamic>> results = await db.query(
       _expensesTable,
-      where: 'branchName = ? AND category = ? AND amount = ? AND expenseDate = ?',
+      where:
+          'branchName = ? AND category = ? AND amount = ? AND expenseDate = ?',
       whereArgs: [
         expense.branchName,
         expense.category,
         expense.amount,
-        expense.expenseDate.toIso8601String().substring(0, 10), // Compare date only
+        expense.expenseDate.toIso8601String().substring(
+          0,
+          10,
+        ), // Compare date only
       ],
     );
-    
+
     return results.map((map) => Expense.fromMap(map)).toList();
   }
 
   /// Update expense sync status
   Future<int> updateExpenseSyncStatus(int expenseId, bool isSynced) async {
     final db = await database;
-    
-    final updateData = <String, dynamic>{
-      'isSynced': isSynced ? 1 : 0,
-    };
-    
+
+    final updateData = <String, dynamic>{'isSynced': isSynced ? 1 : 0};
+
     if (isSynced) {
       updateData['syncedAt'] = DateTime.now().toIso8601String();
     }
-    
+
     return await db.update(
       _expensesTable,
       updateData,
@@ -2219,8 +3017,10 @@ class DatabaseHelper {
   /// Delete expired synced expenses (older than 7 days)
   Future<int> deleteExpiredSyncedExpenses() async {
     final db = await database;
-    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
-    
+    final sevenDaysAgo = DateTime.now()
+        .subtract(Duration(days: 7))
+        .toIso8601String();
+
     return await db.delete(
       _expensesTable,
       where: 'isSynced = ? AND syncedAt < ?',
@@ -2237,7 +3037,7 @@ class DatabaseHelper {
       whereArgs: [expenseId],
       limit: 1,
     );
-    
+
     if (results.isNotEmpty) {
       return Expense.fromMap(results.first);
     }
@@ -2247,52 +3047,64 @@ class DatabaseHelper {
   /// Count queued expenses
   Future<int> getQueuedExpensesCount() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_expensesTable WHERE isSynced = 0');
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_expensesTable WHERE isSynced = 0',
+    );
     return result.first['count'] as int;
   }
 
   /// Count synced expenses (not expired)
   Future<int> getSyncedExpensesCount() async {
     final db = await database;
-    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
-    
+    final sevenDaysAgo = DateTime.now()
+        .subtract(Duration(days: 7))
+        .toIso8601String();
+
     final result = await db.rawQuery(
       'SELECT COUNT(*) as count FROM $_expensesTable WHERE isSynced = 1 AND syncedAt > ?',
-      [sevenDaysAgo]
+      [sevenDaysAgo],
     );
     return result.first['count'] as int;
   }
 
   /// Get total expense amount by category for reporting
-  Future<double> getTotalExpenseAmountByCategory(String category, {bool? isSynced}) async {
+  Future<double> getTotalExpenseAmountByCategory(
+    String category, {
+    bool? isSynced,
+  }) async {
     final db = await database;
-    String query = 'SELECT COALESCE(SUM(amount), 0.0) as total FROM $_expensesTable WHERE category = ?';
+    String query =
+        'SELECT COALESCE(SUM(amount), 0.0) as total FROM $_expensesTable WHERE category = ?';
     List<dynamic> args = [category];
-    
+
     if (isSynced != null) {
       query += ' AND isSynced = ?';
       args.add(isSynced ? 1 : 0);
     }
-    
+
     final result = await db.rawQuery(query, args);
     return result.first['total'] as double;
   }
 
   /// Get expense statistics by branch
-  Future<Map<String, dynamic>> getExpenseStatsByBranch(String branchName) async {
+  Future<Map<String, dynamic>> getExpenseStatsByBranch(
+    String branchName,
+  ) async {
     final db = await database;
-    
+
     final queuedResult = await db.rawQuery(
       'SELECT COUNT(*) as count, COALESCE(SUM(amount), 0.0) as total FROM $_expensesTable WHERE branchName = ? AND isSynced = 0',
-      [branchName]
+      [branchName],
     );
-    
-    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
+
+    final sevenDaysAgo = DateTime.now()
+        .subtract(Duration(days: 7))
+        .toIso8601String();
     final syncedResult = await db.rawQuery(
       'SELECT COUNT(*) as count, COALESCE(SUM(amount), 0.0) as total FROM $_expensesTable WHERE branchName = ? AND isSynced = 1 AND syncedAt > ?',
-      [branchName, sevenDaysAgo]
+      [branchName, sevenDaysAgo],
     );
-    
+
     return {
       'queued': {
         'count': queuedResult.first['count'] as int,
@@ -2301,7 +3113,7 @@ class DatabaseHelper {
       'synced': {
         'count': syncedResult.first['count'] as int,
         'total': syncedResult.first['total'] as double,
-      }
+      },
     };
   }
 
@@ -2312,19 +3124,27 @@ class DatabaseHelper {
   }
 
   /// Get expenses for date range
-  Future<List<Expense>> getExpensesForDateRange(DateTime startDate, DateTime endDate, {String? branchName}) async {
+  Future<List<Expense>> getExpensesForDateRange(
+    DateTime startDate,
+    DateTime endDate, {
+    String? branchName,
+  }) async {
     final db = await database;
-    
-    String query = 'SELECT * FROM $_expensesTable WHERE expenseDate >= ? AND expenseDate <= ?';
-    List<dynamic> args = [startDate.toIso8601String(), endDate.toIso8601String()];
-    
+
+    String query =
+        'SELECT * FROM $_expensesTable WHERE expenseDate >= ? AND expenseDate <= ?';
+    List<dynamic> args = [
+      startDate.toIso8601String(),
+      endDate.toIso8601String(),
+    ];
+
     if (branchName != null) {
       query += ' AND branchName = ?';
       args.add(branchName);
     }
-    
+
     query += ' ORDER BY expenseDate DESC';
-    
+
     final results = await db.rawQuery(query, args);
     return results.map((map) => Expense.fromMap(map)).toList();
   }
@@ -2334,11 +3154,11 @@ class DatabaseHelper {
   /// Insert a new petty cash entry
   Future<int> insertPettyCash(PettyCash pettyCash) async {
     final db = await database;
-    
+
     final pettyCashMap = pettyCash.toMap();
     // Remove id for insertion
     pettyCashMap.remove('id');
-    
+
     return await db.insert(
       _pettyCashTable,
       pettyCashMap,
@@ -2353,7 +3173,7 @@ class DatabaseHelper {
       _pettyCashTable,
       orderBy: 'createdAt DESC',
     );
-    
+
     return results.map((map) => PettyCash.fromMap(map)).toList();
   }
 
@@ -2366,22 +3186,24 @@ class DatabaseHelper {
       whereArgs: [0],
       orderBy: 'createdAt DESC',
     );
-    
+
     return results.map((map) => PettyCash.fromMap(map)).toList();
   }
 
   /// Get synced petty cash entries (not expired)
   Future<List<PettyCash>> getSyncedPettyCash() async {
     final db = await database;
-    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
-    
+    final sevenDaysAgo = DateTime.now()
+        .subtract(Duration(days: 7))
+        .toIso8601String();
+
     final List<Map<String, dynamic>> results = await db.query(
       _pettyCashTable,
       where: 'isSynced = ? AND syncedAt > ?',
       whereArgs: [1, sevenDaysAgo],
       orderBy: 'syncedAt DESC',
     );
-    
+
     return results.map((map) => PettyCash.fromMap(map)).toList();
   }
 
@@ -2394,7 +3216,7 @@ class DatabaseHelper {
       whereArgs: [branchName],
       orderBy: 'createdAt DESC',
     );
-    
+
     return results.map((map) => PettyCash.fromMap(map)).toList();
   }
 
@@ -2407,7 +3229,7 @@ class DatabaseHelper {
       whereArgs: [id],
       limit: 1,
     );
-    
+
     if (results.isNotEmpty) {
       return PettyCash.fromMap(results.first);
     }
@@ -2423,25 +3245,26 @@ class DatabaseHelper {
       whereArgs: [
         pettyCash.branchName,
         pettyCash.amount,
-        pettyCash.dateApplicable.toIso8601String().substring(0, 10), // Compare date only
+        pettyCash.dateApplicable.toIso8601String().substring(
+          0,
+          10,
+        ), // Compare date only
       ],
     );
-    
+
     return results.map((map) => PettyCash.fromMap(map)).toList();
   }
 
   /// Update petty cash sync status
   Future<int> updatePettyCashSyncStatus(int pettyCashId, bool isSynced) async {
     final db = await database;
-    
-    final updateData = <String, dynamic>{
-      'isSynced': isSynced ? 1 : 0,
-    };
-    
+
+    final updateData = <String, dynamic>{'isSynced': isSynced ? 1 : 0};
+
     if (isSynced) {
       updateData['syncedAt'] = DateTime.now().toIso8601String();
     }
-    
+
     return await db.update(
       _pettyCashTable,
       updateData,
@@ -2463,8 +3286,10 @@ class DatabaseHelper {
   /// Delete expired synced petty cash entries (older than 7 days)
   Future<int> deleteExpiredSyncedPettyCash() async {
     final db = await database;
-    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
-    
+    final sevenDaysAgo = DateTime.now()
+        .subtract(Duration(days: 7))
+        .toIso8601String();
+
     return await db.delete(
       _pettyCashTable,
       where: 'isSynced = ? AND syncedAt < ?',
@@ -2479,19 +3304,27 @@ class DatabaseHelper {
   }
 
   /// Get petty cash entries for date range
-  Future<List<PettyCash>> getPettyCashForDateRange(DateTime startDate, DateTime endDate, {String? branchName}) async {
+  Future<List<PettyCash>> getPettyCashForDateRange(
+    DateTime startDate,
+    DateTime endDate, {
+    String? branchName,
+  }) async {
     final db = await database;
-    
-    String query = 'SELECT * FROM $_pettyCashTable WHERE dateApplicable >= ? AND dateApplicable <= ?';
-    List<dynamic> args = [startDate.toIso8601String(), endDate.toIso8601String()];
-    
+
+    String query =
+        'SELECT * FROM $_pettyCashTable WHERE dateApplicable >= ? AND dateApplicable <= ?';
+    List<dynamic> args = [
+      startDate.toIso8601String(),
+      endDate.toIso8601String(),
+    ];
+
     if (branchName != null) {
       query += ' AND branchName = ?';
       args.add(branchName);
     }
-    
+
     query += ' ORDER BY dateApplicable DESC';
-    
+
     final results = await db.rawQuery(query, args);
     return results.map((map) => PettyCash.fromMap(map)).toList();
   }
@@ -2499,15 +3332,22 @@ class DatabaseHelper {
   /// Get count of queued petty cash entries
   Future<int> getQueuedPettyCashCount() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_pettyCashTable WHERE isSynced = 0');
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_pettyCashTable WHERE isSynced = 0',
+    );
     return Sqflite.firstIntValue(result) ?? 0;
   }
 
   /// Get count of synced petty cash entries (not expired)
   Future<int> getSyncedPettyCashCount() async {
     final db = await database;
-    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_pettyCashTable WHERE isSynced = 1 AND syncedAt > ?', [sevenDaysAgo]);
+    final sevenDaysAgo = DateTime.now()
+        .subtract(Duration(days: 7))
+        .toIso8601String();
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_pettyCashTable WHERE isSynced = 1 AND syncedAt > ?',
+      [sevenDaysAgo],
+    );
     return Sqflite.firstIntValue(result) ?? 0;
   }
 
@@ -2516,11 +3356,11 @@ class DatabaseHelper {
   /// Insert a new cash count entry
   Future<int> insertCashCount(CashCount cashCount) async {
     final db = await database;
-    
+
     final cashCountMap = cashCount.toMap();
     // Remove id for insertion
     cashCountMap.remove('id');
-    
+
     return await db.insert(
       _cashCountTable,
       cashCountMap,
@@ -2535,7 +3375,7 @@ class DatabaseHelper {
       _cashCountTable,
       orderBy: 'createdAt DESC',
     );
-    
+
     return results.map((map) => CashCount.fromMap(map)).toList();
   }
 
@@ -2548,22 +3388,24 @@ class DatabaseHelper {
       whereArgs: [0],
       orderBy: 'createdAt DESC',
     );
-    
+
     return results.map((map) => CashCount.fromMap(map)).toList();
   }
 
   /// Get synced cash count entries (not expired)
   Future<List<CashCount>> getSyncedCashCounts() async {
     final db = await database;
-    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
-    
+    final sevenDaysAgo = DateTime.now()
+        .subtract(Duration(days: 7))
+        .toIso8601String();
+
     final List<Map<String, dynamic>> results = await db.query(
       _cashCountTable,
       where: 'isSynced = ? AND syncedAt > ?',
       whereArgs: [1, sevenDaysAgo],
       orderBy: 'syncedAt DESC',
     );
-    
+
     return results.map((map) => CashCount.fromMap(map)).toList();
   }
 
@@ -2576,7 +3418,7 @@ class DatabaseHelper {
       whereArgs: [branchName],
       orderBy: 'createdAt DESC',
     );
-    
+
     return results.map((map) => CashCount.fromMap(map)).toList();
   }
 
@@ -2589,7 +3431,7 @@ class DatabaseHelper {
       whereArgs: [id],
       limit: 1,
     );
-    
+
     if (results.isNotEmpty) {
       return CashCount.fromMap(results.first);
     }
@@ -2604,25 +3446,26 @@ class DatabaseHelper {
       where: 'branchName = ? AND cashbookDate = ?',
       whereArgs: [
         cashCount.branchName,
-        cashCount.cashbookDate.toIso8601String().substring(0, 10), // Compare date only
+        cashCount.cashbookDate.toIso8601String().substring(
+          0,
+          10,
+        ), // Compare date only
       ],
     );
-    
+
     return results.map((map) => CashCount.fromMap(map)).toList();
   }
 
   /// Update cash count sync status
   Future<int> updateCashCountSyncStatus(int cashCountId, bool isSynced) async {
     final db = await database;
-    
-    final updateData = <String, dynamic>{
-      'isSynced': isSynced ? 1 : 0,
-    };
-    
+
+    final updateData = <String, dynamic>{'isSynced': isSynced ? 1 : 0};
+
     if (isSynced) {
       updateData['syncedAt'] = DateTime.now().toIso8601String();
     }
-    
+
     return await db.update(
       _cashCountTable,
       updateData,
@@ -2644,8 +3487,10 @@ class DatabaseHelper {
   /// Delete expired synced cash count entries (older than 7 days)
   Future<int> deleteExpiredSyncedCashCounts() async {
     final db = await database;
-    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
-    
+    final sevenDaysAgo = DateTime.now()
+        .subtract(Duration(days: 7))
+        .toIso8601String();
+
     return await db.delete(
       _cashCountTable,
       where: 'isSynced = ? AND syncedAt < ?',
@@ -2660,19 +3505,27 @@ class DatabaseHelper {
   }
 
   /// Get cash count entries for date range
-  Future<List<CashCount>> getCashCountsForDateRange(DateTime startDate, DateTime endDate, {String? branchName}) async {
+  Future<List<CashCount>> getCashCountsForDateRange(
+    DateTime startDate,
+    DateTime endDate, {
+    String? branchName,
+  }) async {
     final db = await database;
-    
-    String query = 'SELECT * FROM $_cashCountTable WHERE cashbookDate >= ? AND cashbookDate <= ?';
-    List<dynamic> args = [startDate.toIso8601String(), endDate.toIso8601String()];
-    
+
+    String query =
+        'SELECT * FROM $_cashCountTable WHERE cashbookDate >= ? AND cashbookDate <= ?';
+    List<dynamic> args = [
+      startDate.toIso8601String(),
+      endDate.toIso8601String(),
+    ];
+
     if (branchName != null) {
       query += ' AND branchName = ?';
       args.add(branchName);
     }
-    
+
     query += ' ORDER BY cashbookDate DESC';
-    
+
     final results = await db.rawQuery(query, args);
     return results.map((map) => CashCount.fromMap(map)).toList();
   }
@@ -2680,15 +3533,22 @@ class DatabaseHelper {
   /// Get count of queued cash count entries
   Future<int> getQueuedCashCountsCount() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_cashCountTable WHERE isSynced = 0');
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_cashCountTable WHERE isSynced = 0',
+    );
     return Sqflite.firstIntValue(result) ?? 0;
   }
 
   /// Get count of synced cash count entries (not expired)
   Future<int> getSyncedCashCountsCount() async {
     final db = await database;
-    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM $_cashCountTable WHERE isSynced = 1 AND syncedAt > ?', [sevenDaysAgo]);
+    final sevenDaysAgo = DateTime.now()
+        .subtract(Duration(days: 7))
+        .toIso8601String();
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_cashCountTable WHERE isSynced = 1 AND syncedAt > ?',
+      [sevenDaysAgo],
+    );
     return Sqflite.firstIntValue(result) ?? 0;
   }
 
@@ -2697,11 +3557,11 @@ class DatabaseHelper {
   /// Insert a new cashbook download
   Future<int> insertCashbookDownload(CashbookDownload download) async {
     final db = await database;
-    
+
     final downloadMap = download.toMap();
     // Remove id for insertion
     downloadMap.remove('id');
-    
+
     return await db.insert(
       _cashbookDownloadsTable,
       downloadMap,
@@ -2716,24 +3576,28 @@ class DatabaseHelper {
       _cashbookDownloadsTable,
       orderBy: 'requestedAt DESC',
     );
-    
+
     return results.map((map) => CashbookDownload.fromMap(map)).toList();
   }
 
   /// Get recent cashbook downloads (limit 5)
-  Future<List<CashbookDownload>> getRecentCashbookDownloads({int limit = 5}) async {
+  Future<List<CashbookDownload>> getRecentCashbookDownloads({
+    int limit = 5,
+  }) async {
     final db = await database;
     final List<Map<String, dynamic>> results = await db.query(
       _cashbookDownloadsTable,
       orderBy: 'requestedAt DESC',
       limit: limit,
     );
-    
+
     return results.map((map) => CashbookDownload.fromMap(map)).toList();
   }
 
   /// Get cashbook downloads by status
-  Future<List<CashbookDownload>> getCashbookDownloadsByStatus(DownloadStatus status) async {
+  Future<List<CashbookDownload>> getCashbookDownloadsByStatus(
+    DownloadStatus status,
+  ) async {
     final db = await database;
     final List<Map<String, dynamic>> results = await db.query(
       _cashbookDownloadsTable,
@@ -2741,7 +3605,7 @@ class DatabaseHelper {
       whereArgs: [status.name],
       orderBy: 'requestedAt DESC',
     );
-    
+
     return results.map((map) => CashbookDownload.fromMap(map)).toList();
   }
 
@@ -2754,7 +3618,7 @@ class DatabaseHelper {
       whereArgs: [id],
       limit: 1,
     );
-    
+
     if (results.isNotEmpty) {
       return CashbookDownload.fromMap(results.first);
     }
@@ -2763,28 +3627,27 @@ class DatabaseHelper {
 
   /// Update cashbook download status
   Future<int> updateCashbookDownloadStatus(
-    int downloadId, 
-    DownloadStatus status, 
-    {String? filePath, String? errorMessage}
-  ) async {
+    int downloadId,
+    DownloadStatus status, {
+    String? filePath,
+    String? errorMessage,
+  }) async {
     final db = await database;
-    
-    final updateData = <String, dynamic>{
-      'status': status.name,
-    };
-    
+
+    final updateData = <String, dynamic>{'status': status.name};
+
     if (filePath != null) {
       updateData['filePath'] = filePath;
     }
-    
+
     if (errorMessage != null) {
       updateData['errorMessage'] = errorMessage;
     }
-    
+
     if (status == DownloadStatus.completed) {
       updateData['completedAt'] = DateTime.now().toIso8601String();
     }
-    
+
     return await db.update(
       _cashbookDownloadsTable,
       updateData,
@@ -2812,15 +3675,17 @@ class DatabaseHelper {
       whereArgs: [DownloadStatus.pending.name, DownloadStatus.downloading.name],
       orderBy: 'requestedAt ASC',
     );
-    
+
     return results.map((map) => CashbookDownload.fromMap(map)).toList();
   }
 
   /// Clean up old download records (older than 30 days)
   Future<int> cleanupOldCashbookDownloads() async {
     final db = await database;
-    final thirtyDaysAgo = DateTime.now().subtract(Duration(days: 30)).toIso8601String();
-    
+    final thirtyDaysAgo = DateTime.now()
+        .subtract(Duration(days: 30))
+        .toIso8601String();
+
     return await db.delete(
       _cashbookDownloadsTable,
       where: 'requestedAt < ?',
@@ -2850,37 +3715,42 @@ class DatabaseHelper {
       whereArgs: [RequestBalanceStatus.pending.name],
       orderBy: 'requestedAt ASC',
     );
-    
+
     return results.map((map) => RequestBalance.fromMap(map)).toList();
   }
 
   /// Get recent request balance records
-  Future<List<RequestBalance>> getRecentRequestBalances({int limit = 20}) async {
+  Future<List<RequestBalance>> getRecentRequestBalances({
+    int limit = 20,
+  }) async {
     final db = await database;
     final List<Map<String, dynamic>> results = await db.query(
       _requestBalanceTable,
       orderBy: 'requestedAt DESC',
       limit: limit,
     );
-    
+
     return results.map((map) => RequestBalance.fromMap(map)).toList();
   }
 
   /// Update request balance status
-  Future<int> updateRequestBalanceStatus(int requestId, RequestBalanceStatus status, {String? errorMessage, DateTime? syncedAt}) async {
+  Future<int> updateRequestBalanceStatus(
+    int requestId,
+    RequestBalanceStatus status, {
+    String? errorMessage,
+    DateTime? syncedAt,
+  }) async {
     final db = await database;
-    Map<String, dynamic> updateData = {
-      'status': status.name,
-    };
-    
+    Map<String, dynamic> updateData = {'status': status.name};
+
     if (errorMessage != null) {
       updateData['errorMessage'] = errorMessage;
     }
-    
+
     if (syncedAt != null) {
       updateData['syncedAt'] = syncedAt.toIso8601String();
     }
-    
+
     return await db.update(
       _requestBalanceTable,
       updateData,
@@ -2902,8 +3772,10 @@ class DatabaseHelper {
   /// Clean up old request balance records (older than 7 days and synced)
   Future<int> cleanupOldRequestBalances() async {
     final db = await database;
-    final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).toIso8601String();
-    
+    final sevenDaysAgo = DateTime.now()
+        .subtract(Duration(days: 7))
+        .toIso8601String();
+
     return await db.delete(
       _requestBalanceTable,
       where: 'status = ? AND syncedAt < ?',
@@ -2912,7 +3784,9 @@ class DatabaseHelper {
   }
 
   /// Get request balance count by status
-  Future<int> getRequestBalanceCountByStatus(RequestBalanceStatus status) async {
+  Future<int> getRequestBalanceCountByStatus(
+    RequestBalanceStatus status,
+  ) async {
     final db = await database;
     final result = await db.rawQuery(
       'SELECT COUNT(*) as count FROM $_requestBalanceTable WHERE status = ?',

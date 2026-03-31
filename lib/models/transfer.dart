@@ -39,17 +39,23 @@ class Transfer {
       receivingBranch: json['ReceivingBranch'] ?? '',
       transferType: json['TransferType'] ?? 'USD_CASH',
       isSynced: json['IsSynced'] ?? false,
-      syncedAt: json['SyncedAt'] != null ? DateTime.parse(json['SyncedAt']) : null,
-      createdAt: json['CreatedAt'] != null ? DateTime.parse(json['CreatedAt']) : DateTime.now(),
+      syncedAt: json['SyncedAt'] != null
+          ? DateTime.parse(json['SyncedAt'])
+          : null,
+      createdAt: json['CreatedAt'] != null
+          ? DateTime.parse(json['CreatedAt'])
+          : DateTime.now(),
     );
   }
 
   Map<String, dynamic> toJson() {
+    // Zero out time - backend only cares about the date
+    final dateOnly = DateTime.utc(transferDate.year, transferDate.month, transferDate.day);
     return {
-      'Id': id ?? 0,
+      'Id': 0,
       'Amount': amount,
-      'TransferDate': transferDate.toIso8601String(),
-      // Note: Narration is NOT included as per user requirement
+      'TransferDate': dateOnly.toIso8601String(),
+      'Narration': narration ?? '',
       'SendingBranchId': sendingBranchId,
       'SendingBranch': sendingBranch,
       'ReceivingBranchId': receivingBranchId,
@@ -86,7 +92,9 @@ class Transfer {
       receivingBranch: map['receivingBranch'] ?? '',
       transferType: map['transferType'] ?? 'USD_CASH',
       isSynced: (map['isSynced'] ?? 0) == 1,
-      syncedAt: map['syncedAt'] != null ? DateTime.parse(map['syncedAt']) : null,
+      syncedAt: map['syncedAt'] != null
+          ? DateTime.parse(map['syncedAt'])
+          : null,
       createdAt: DateTime.parse(map['createdAt']),
     );
   }

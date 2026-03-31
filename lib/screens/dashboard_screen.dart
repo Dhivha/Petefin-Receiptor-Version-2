@@ -15,6 +15,11 @@ import 'manage_cash_count_screen.dart';
 import 'manage_cashbook_download_screen.dart';
 import 'manage_request_balance_screen.dart';
 import 'login_screen.dart';
+import 'client_management_screen.dart';
+import 'add_client_screen.dart';
+import 'add_client_image_screen.dart';
+import 'view_client_photo_screen.dart';
+import 'collateral_submission_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -376,9 +381,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         padding: EdgeInsets.zero,
         children: [
           DrawerHeader(
-            decoration: BoxDecoration(
-              color: Colors.blue.shade600,
-            ),
+            decoration: BoxDecoration(color: Colors.blue.shade600),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -405,13 +408,64 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 Text(
                   _currentUser!.branch,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 14,
-                  ),
+                  style: const TextStyle(color: Colors.white70, fontSize: 14),
                 ),
               ],
             ),
+          ),
+          ExpansionTile(
+            leading: const Icon(Icons.people, color: Colors.blue),
+            title: const Text('Client Management'),
+            children: [
+              ListTile(
+                leading: const Icon(Icons.person_add, color: Colors.blue),
+                title: const Text('Add Client'),
+                subtitle: const Text('Create new client profile'),
+                onTap: () {
+                  Navigator.of(context).pop(); // Close drawer
+                  _navigateToAddClient();
+                },
+              ),
+              ListTile(
+                leading: const Icon(
+                  Icons.add_photo_alternate,
+                  color: Colors.orange,
+                ),
+                title: const Text('Add Client Image'),
+                subtitle: const Text('Upload photos for existing clients'),
+                onTap: () {
+                  Navigator.of(context).pop(); // Close drawer
+                  _navigateToAddClientImage();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo, color: Colors.green),
+                title: const Text('View Photo'),
+                subtitle: const Text('View client photos'),
+                onTap: () {
+                  Navigator.of(context).pop(); // Close drawer
+                  _navigateToViewPhoto();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.description, color: Colors.purple),
+                title: const Text('Add Collateral'),
+                subtitle: const Text('Submit collateral documents'),
+                onTap: () {
+                  Navigator.of(context).pop(); // Close drawer
+                  _navigateToCollateralSubmission();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.list, color: Colors.indigo),
+                title: const Text('View Clients'),
+                subtitle: const Text('Manage queued and synced clients'),
+                onTap: () {
+                  Navigator.of(context).pop(); // Close drawer
+                  _navigateToClientManagement();
+                },
+              ),
+            ],
           ),
           ExpansionTile(
             leading: const Icon(Icons.settings, color: Colors.grey),
@@ -427,7 +481,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       final lastSync = snapshot.data!;
                       final now = DateTime.now();
                       final diff = now.difference(lastSync);
-                      
+
                       String timeAgo;
                       if (diff.inMinutes < 1) {
                         timeAgo = 'Just now';
@@ -438,7 +492,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       } else {
                         timeAgo = '${diff.inDays}d ago';
                       }
-                      
+
                       return Text('Last synced: $timeAgo');
                     }
                     return const Text('Never synced');
@@ -470,7 +524,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             },
           ),
           ListTile(
-            leading: const Icon(Icons.account_balance_wallet, color: Colors.green),
+            leading: const Icon(
+              Icons.account_balance_wallet,
+              color: Colors.green,
+            ),
             title: const Text('Fund Petty Cash'),
             subtitle: const Text('Fund and manage petty cash'),
             onTap: () {
@@ -537,7 +594,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     try {
       final result = await _authService.syncBranches();
-      
+
       if (mounted) {
         Navigator.of(context).pop(); // Close loading dialog
 
@@ -610,49 +667,67 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _navigateToManageTransfers() {
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const ManageTransfersScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const ManageTransfersScreen()),
     );
   }
 
   void _navigateToExpenses() {
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const ManageExpensesScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const ManageExpensesScreen()),
     );
   }
 
   void _navigateToFundPettyCash() {
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const ManagePettyCashScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const ManagePettyCashScreen()),
     );
   }
 
   void _navigateToDailyCashCount() {
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const ManageCashCountScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const ManageCashCountScreen()),
     );
   }
 
   void _navigateToCashbookDownload() {
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => ManageCashbookDownloadScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => ManageCashbookDownloadScreen()),
     );
   }
 
   void _navigateToRequestBalance() {
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => ManageRequestBalanceScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => ManageRequestBalanceScreen()),
+    );
+  }
+
+  void _navigateToClientManagement() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (context) => const ClientManagementScreen()),
+    );
+  }
+
+  void _navigateToAddClient() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (context) => const AddClientScreen()));
+  }
+
+  void _navigateToAddClientImage() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (context) => const AddClientImageScreen()),
+    );
+  }
+
+  void _navigateToViewPhoto() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (context) => const ViewClientPhotoScreen()),
+    );
+  }
+
+  void _navigateToCollateralSubmission() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (context) => const CollateralSubmissionScreen()),
     );
   }
 }

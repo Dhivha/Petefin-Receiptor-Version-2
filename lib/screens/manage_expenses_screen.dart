@@ -87,7 +87,7 @@ class _ManageExpensesScreenState extends State<ManageExpensesScreen>
       context: context,
       initialDate: _selectedDate ?? DateTime.now(),
       firstDate: DateTime.now().subtract(const Duration(days: 2)),
-      lastDate: DateTime.now(),
+      lastDate: DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day, 23, 59, 59), // Allow full day of today
       helpText: 'Select expense date',
       errorFormatText: 'Enter valid date',
       errorInvalidText: 'Date cannot be more than 2 days ago',

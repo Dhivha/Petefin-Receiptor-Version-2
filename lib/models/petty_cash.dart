@@ -34,10 +34,12 @@ class PettyCash {
   }
 
   Map<String, dynamic> toJson() {
+    // Zero out time portion - backend only cares about the date, set time to 00:00:00Z
+    final dateOnly = DateTime.utc(dateApplicable.year, dateApplicable.month, dateApplicable.day);
     return {
       'BranchName': branchName,
       'Amount': amount,
-      'DateApplicable': dateApplicable.toIso8601String(),
+      'DateApplicable': dateOnly.toIso8601String(),
     };
   }
 

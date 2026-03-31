@@ -15,7 +15,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _whatsAppController = TextEditingController();
   final _pinController = TextEditingController();
   final AuthService _authService = AuthService();
-  
+
   bool _isLoading = false;
   bool _obscurePIN = true;
 
@@ -92,14 +92,14 @@ class _LoginScreenState extends State<LoginScreen> {
     if (value == null || value.isEmpty) {
       return 'WhatsApp contact is required';
     }
-    
+
     // Remove any non-digit characters
     final cleanNumber = value.replaceAll(RegExp(r'[^\d+]'), '');
-    
+
     if (cleanNumber.length < 10) {
       return 'Please enter a valid WhatsApp number';
     }
-    
+
     return null;
   }
 
@@ -107,11 +107,11 @@ class _LoginScreenState extends State<LoginScreen> {
     if (value == null || value.isEmpty) {
       return 'PIN is required';
     }
-    
+
     if (value.length < 4) {
       return 'PIN must be at least 4 characters';
     }
-    
+
     return null;
   }
 
@@ -125,7 +125,7 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             children: [
               const SizedBox(height: 60),
-              
+
               // Logo/App Icon
               Container(
                 width: 120,
@@ -147,9 +147,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   color: Colors.white,
                 ),
               ),
-              
+
               const SizedBox(height: 32),
-              
+
               // App Title
               Text(
                 'PeteFin Receiptor',
@@ -159,19 +159,16 @@ class _LoginScreenState extends State<LoginScreen> {
                   color: Colors.grey.shade800,
                 ),
               ),
-              
+
               const SizedBox(height: 8),
-              
+
               Text(
                 'Sign in to continue',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey.shade600,
-                ),
+                style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
               ),
-              
+
               const SizedBox(height: 48),
-              
+
               // Login Form
               Form(
                 key: _formKey,
@@ -191,17 +188,22 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: Colors.blue.shade600, width: 2),
+                          borderSide: BorderSide(
+                            color: Colors.blue.shade600,
+                            width: 2,
+                          ),
                         ),
                       ),
                       validator: _validateWhatsApp,
                       inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[\d+\-\s\(\)]')),
+                        FilteringTextInputFormatter.allow(
+                          RegExp(r'[\d+\-\s\(\)]'),
+                        ),
                       ],
                     ),
-                    
+
                     const SizedBox(height: 20),
-                    
+
                     // PIN Field
                     TextFormField(
                       controller: _pinController,
@@ -215,7 +217,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         prefixIcon: const Icon(Icons.lock),
                         suffixIcon: IconButton(
                           icon: Icon(
-                            _obscurePIN ? Icons.visibility : Icons.visibility_off,
+                            _obscurePIN
+                                ? Icons.visibility
+                                : Icons.visibility_off,
                           ),
                           onPressed: () {
                             setState(() {
@@ -228,17 +232,18 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: Colors.blue.shade600, width: 2),
+                          borderSide: BorderSide(
+                            color: Colors.blue.shade600,
+                            width: 2,
+                          ),
                         ),
                       ),
                       validator: _validatePIN,
-                      inputFormatters: [
-                        LengthLimitingTextInputFormatter(20),
-                      ],
+                      inputFormatters: [LengthLimitingTextInputFormatter(20)],
                     ),
-                    
+
                     const SizedBox(height: 32),
-                    
+
                     // Login Button
                     SizedBox(
                       width: double.infinity,
@@ -259,7 +264,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                 height: 24,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white,
+                                  ),
                                 ),
                               )
                             : const Text(
@@ -274,9 +281,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   ],
                 ),
               ),
-              
+
               const SizedBox(height: 32),
-              
+
               // Additional Info
               Container(
                 padding: const EdgeInsets.all(16),
@@ -304,16 +311,13 @@ class _LoginScreenState extends State<LoginScreen> {
                   ],
                 ),
               ),
-              
+
               const SizedBox(height: 24),
-              
+
               // Version Info
               Text(
                 'Version 1.0.0',
-                style: TextStyle(
-                  color: Colors.grey.shade500,
-                  fontSize: 12,
-                ),
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
               ),
             ],
           ),

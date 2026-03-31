@@ -79,7 +79,9 @@ class Disbursement {
       interest: (json['Interest'] ?? 0).toDouble(),
       totalAmount: (json['TotalAmount'] ?? 0).toDouble(),
       productName: json['ProductName'],
-      nextPaymentDate: json['NextPaymentDate'] != null && json['NextPaymentDate'] != "0001-01-01T00:00:00"
+      nextPaymentDate:
+          json['NextPaymentDate'] != null &&
+              json['NextPaymentDate'] != "0001-01-01T00:00:00"
           ? DateTime.parse(json['NextPaymentDate'])
           : null,
       weeklyPayment: (json['WeeklyPayment'] ?? 0).toDouble(),
@@ -93,19 +95,45 @@ class Disbursement {
       description: json['Description'],
       branch: json['Branch'] ?? '',
       clientName: json['ClientName'] ?? '',
-      firstPayment: json['FirstPayment'] != null ? DateTime.parse(json['FirstPayment']) : null,
-      secondPayment: json['SecondPayment'] != null ? DateTime.parse(json['SecondPayment']) : null,
-      thirdPayment: json['ThirdPayment'] != null ? DateTime.parse(json['ThirdPayment']) : null,
-      fourthPayment: json['FourthPayment'] != null ? DateTime.parse(json['FourthPayment']) : null,
-      fifthPayment: json['FifthPayment'] != null ? DateTime.parse(json['FifthPayment']) : null,
-      sixthPayment: json['SixthPayment'] != null ? DateTime.parse(json['SixthPayment']) : null,
-      seventhPayment: json['SeventhPayment'] != null ? DateTime.parse(json['SeventhPayment']) : null,
-      eighthPayment: json['EighthPayment'] != null ? DateTime.parse(json['EighthPayment']) : null,
-      ninthPayment: json['NinthPayment'] != null ? DateTime.parse(json['NinthPayment']) : null,
-      tenthPayment: json['TenthPayment'] != null ? DateTime.parse(json['TenthPayment']) : null,
-      eleventhPayment: json['EleventhPayment'] != null ? DateTime.parse(json['EleventhPayment']) : null,
-      twelfthPayment: json['TwelfthPayment'] != null ? DateTime.parse(json['TwelfthPayment']) : null,
-      thirteenthPayment: json['ThirteenthPayment'] != null ? DateTime.parse(json['ThirteenthPayment']) : null,
+      firstPayment: json['FirstPayment'] != null
+          ? DateTime.parse(json['FirstPayment'])
+          : null,
+      secondPayment: json['SecondPayment'] != null
+          ? DateTime.parse(json['SecondPayment'])
+          : null,
+      thirdPayment: json['ThirdPayment'] != null
+          ? DateTime.parse(json['ThirdPayment'])
+          : null,
+      fourthPayment: json['FourthPayment'] != null
+          ? DateTime.parse(json['FourthPayment'])
+          : null,
+      fifthPayment: json['FifthPayment'] != null
+          ? DateTime.parse(json['FifthPayment'])
+          : null,
+      sixthPayment: json['SixthPayment'] != null
+          ? DateTime.parse(json['SixthPayment'])
+          : null,
+      seventhPayment: json['SeventhPayment'] != null
+          ? DateTime.parse(json['SeventhPayment'])
+          : null,
+      eighthPayment: json['EighthPayment'] != null
+          ? DateTime.parse(json['EighthPayment'])
+          : null,
+      ninthPayment: json['NinthPayment'] != null
+          ? DateTime.parse(json['NinthPayment'])
+          : null,
+      tenthPayment: json['TenthPayment'] != null
+          ? DateTime.parse(json['TenthPayment'])
+          : null,
+      eleventhPayment: json['EleventhPayment'] != null
+          ? DateTime.parse(json['EleventhPayment'])
+          : null,
+      twelfthPayment: json['TwelfthPayment'] != null
+          ? DateTime.parse(json['TwelfthPayment'])
+          : null,
+      thirteenthPayment: json['ThirteenthPayment'] != null
+          ? DateTime.parse(json['ThirteenthPayment'])
+          : null,
     );
   }
 
@@ -157,7 +185,7 @@ class Disbursement {
       interest: (map['interest'] ?? 0).toDouble(),
       totalAmount: (map['totalAmount'] ?? 0).toDouble(),
       productName: map['productName'],
-      nextPaymentDate: map['nextPaymentDate'] != null 
+      nextPaymentDate: map['nextPaymentDate'] != null
           ? DateTime.parse(map['nextPaymentDate'])
           : null,
       weeklyPayment: (map['weeklyPayment'] ?? 0).toDouble(),
@@ -171,19 +199,45 @@ class Disbursement {
       description: map['description'],
       branch: map['branch'] ?? '',
       clientName: map['clientName'] ?? '',
-      firstPayment: map['firstPayment'] != null ? DateTime.parse(map['firstPayment']) : null,
-      secondPayment: map['secondPayment'] != null ? DateTime.parse(map['secondPayment']) : null,
-      thirdPayment: map['thirdPayment'] != null ? DateTime.parse(map['thirdPayment']) : null,
-      fourthPayment: map['fourthPayment'] != null ? DateTime.parse(map['fourthPayment']) : null,
-      fifthPayment: map['fifthPayment'] != null ? DateTime.parse(map['fifthPayment']) : null,
-      sixthPayment: map['sixthPayment'] != null ? DateTime.parse(map['sixthPayment']) : null,
-      seventhPayment: map['seventhPayment'] != null ? DateTime.parse(map['seventhPayment']) : null,
-      eighthPayment: map['eighthPayment'] != null ? DateTime.parse(map['eighthPayment']) : null,
-      ninthPayment: map['ninthPayment'] != null ? DateTime.parse(map['ninthPayment']) : null,
-      tenthPayment: map['tenthPayment'] != null ? DateTime.parse(map['tenthPayment']) : null,
-      eleventhPayment: map['eleventhPayment'] != null ? DateTime.parse(map['eleventhPayment']) : null,
-      twelfthPayment: map['twelfthPayment'] != null ? DateTime.parse(map['twelfthPayment']) : null,
-      thirteenthPayment: map['thirteenthPayment'] != null ? DateTime.parse(map['thirteenthPayment']) : null,
+      firstPayment: map['firstPayment'] != null
+          ? DateTime.parse(map['firstPayment'])
+          : null,
+      secondPayment: map['secondPayment'] != null
+          ? DateTime.parse(map['secondPayment'])
+          : null,
+      thirdPayment: map['thirdPayment'] != null
+          ? DateTime.parse(map['thirdPayment'])
+          : null,
+      fourthPayment: map['fourthPayment'] != null
+          ? DateTime.parse(map['fourthPayment'])
+          : null,
+      fifthPayment: map['fifthPayment'] != null
+          ? DateTime.parse(map['fifthPayment'])
+          : null,
+      sixthPayment: map['sixthPayment'] != null
+          ? DateTime.parse(map['sixthPayment'])
+          : null,
+      seventhPayment: map['seventhPayment'] != null
+          ? DateTime.parse(map['seventhPayment'])
+          : null,
+      eighthPayment: map['eighthPayment'] != null
+          ? DateTime.parse(map['eighthPayment'])
+          : null,
+      ninthPayment: map['ninthPayment'] != null
+          ? DateTime.parse(map['ninthPayment'])
+          : null,
+      tenthPayment: map['tenthPayment'] != null
+          ? DateTime.parse(map['tenthPayment'])
+          : null,
+      eleventhPayment: map['eleventhPayment'] != null
+          ? DateTime.parse(map['eleventhPayment'])
+          : null,
+      twelfthPayment: map['twelfthPayment'] != null
+          ? DateTime.parse(map['twelfthPayment'])
+          : null,
+      thirteenthPayment: map['thirteenthPayment'] != null
+          ? DateTime.parse(map['thirteenthPayment'])
+          : null,
     );
   }
 
@@ -210,7 +264,7 @@ class Disbursement {
   DateTime? get nextDuePayment {
     final now = DateTime.now();
     final payments = paymentSchedule;
-    
+
     for (final payment in payments) {
       if (payment.isAfter(now)) {
         return payment;
@@ -223,7 +277,7 @@ class Disbursement {
   bool get hasOverduePayments {
     final now = DateTime.now();
     final payments = paymentSchedule;
-    
+
     return payments.any((payment) => payment.isBefore(now));
   }
 }

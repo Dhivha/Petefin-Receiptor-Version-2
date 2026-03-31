@@ -16,10 +16,10 @@ class _AddReceiptScreenState extends State<AddReceiptScreen> {
   final _descriptionController = TextEditingController();
   final _categoryController = TextEditingController();
   final ReceiptService _receiptService = ReceiptService();
-  
+
   bool _isLoading = false;
   String _selectedCategory = 'Office';
-  
+
   final List<String> _categories = [
     'Office',
     'Meals',
@@ -69,9 +69,9 @@ class _AddReceiptScreenState extends State<AddReceiptScreen> {
                   return null;
                 },
               ),
-              
+
               const SizedBox(height: 16),
-              
+
               // Amount
               TextFormField(
                 controller: _amountController,
@@ -81,7 +81,9 @@ class _AddReceiptScreenState extends State<AddReceiptScreen> {
                   prefixIcon: Icon(Icons.attach_money),
                   border: OutlineInputBorder(),
                 ),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
                     return 'Please enter an amount';
@@ -93,9 +95,9 @@ class _AddReceiptScreenState extends State<AddReceiptScreen> {
                   return null;
                 },
               ),
-              
+
               const SizedBox(height: 16),
-              
+
               // Category Dropdown
               DropdownButtonFormField<String>(
                 value: _selectedCategory,
@@ -116,9 +118,9 @@ class _AddReceiptScreenState extends State<AddReceiptScreen> {
                   });
                 },
               ),
-              
+
               const SizedBox(height: 16),
-              
+
               // Description
               TextFormField(
                 controller: _descriptionController,
@@ -136,9 +138,9 @@ class _AddReceiptScreenState extends State<AddReceiptScreen> {
                   return null;
                 },
               ),
-              
+
               const SizedBox(height: 24),
-              
+
               // Image Upload Section
               Container(
                 padding: const EdgeInsets.all(16),
@@ -181,9 +183,9 @@ class _AddReceiptScreenState extends State<AddReceiptScreen> {
                   ],
                 ),
               ),
-              
+
               const SizedBox(height: 32),
-              
+
               // Submit Button
               SizedBox(
                 height: 50,
@@ -197,7 +199,10 @@ class _AddReceiptScreenState extends State<AddReceiptScreen> {
                       ? const CircularProgressIndicator(color: Colors.white)
                       : const Text(
                           'Add Receipt',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                 ),
               ),
@@ -243,7 +248,7 @@ class _AddReceiptScreenState extends State<AddReceiptScreen> {
       );
 
       await _receiptService.createReceipt(receipt);
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

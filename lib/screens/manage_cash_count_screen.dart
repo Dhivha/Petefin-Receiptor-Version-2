@@ -74,9 +74,9 @@ class _ManageCashCountScreenState extends State<ManageCashCountScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error loading cash counts: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading cash counts: $e')),
+        );
       }
     }
   }
@@ -86,7 +86,7 @@ class _ManageCashCountScreenState extends State<ManageCashCountScreen>
       context: context,
       initialDate: _selectedDate ?? DateTime.now(),
       firstDate: DateTime.now().subtract(const Duration(days: 1)),
-      lastDate: DateTime.now(),
+      lastDate: DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day, 23, 59, 59), // Allow full day of today
       helpText: 'Select cashbook date',
       errorFormatText: 'Enter valid date',
       errorInvalidText: 'Date cannot be more than 1 day ago',
@@ -106,9 +106,9 @@ class _ManageCashCountScreenState extends State<ManageCashCountScreen>
     }
 
     if (_selectedDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a date')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please select a date')));
       return;
     }
 
@@ -118,7 +118,7 @@ class _ManageCashCountScreenState extends State<ManageCashCountScreen>
 
     try {
       final amount = double.parse(_amountController.text);
-      
+
       final result = await _authService.captureDailyCashCount(
         amount: amount,
         cashbookDate: _selectedDate!,
@@ -129,11 +129,13 @@ class _ManageCashCountScreenState extends State<ManageCashCountScreen>
           // Clear form
           _amountController.clear();
           _selectedDate = DateTime.now();
-          _dateController.text = DateFormat('dd/MM/yyyy').format(_selectedDate!);
-          
+          _dateController.text = DateFormat(
+            'dd/MM/yyyy',
+          ).format(_selectedDate!);
+
           // Reload data
           await _loadCashCounts();
-          
+
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(result.message),
@@ -152,10 +154,7 @@ class _ManageCashCountScreenState extends State<ManageCashCountScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -289,7 +288,9 @@ class _ManageCashCountScreenState extends State<ManageCashCountScreen>
                         height: 20,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white,
+                          ),
                         ),
                       )
                     : const Icon(Icons.sync),
@@ -400,7 +401,9 @@ class _ManageCashCountScreenState extends State<ManageCashCountScreen>
                               height: 20,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white,
+                                ),
                               ),
                             )
                           : const Text(
@@ -549,7 +552,11 @@ class _ManageCashCountScreenState extends State<ManageCashCountScreen>
                     if (isQueued && cashCount.canBeDeleted)
                       TextButton.icon(
                         onPressed: () => _deleteCashCount(cashCount),
-                        icon: const Icon(Icons.delete, size: 16, color: Colors.red),
+                        icon: const Icon(
+                          Icons.delete,
+                          size: 16,
+                          color: Colors.red,
+                        ),
                         label: const Text(
                           'Delete',
                           style: TextStyle(color: Colors.red, fontSize: 12),

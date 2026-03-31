@@ -45,8 +45,8 @@ class Repayment {
       dateOfPayment: json['DateOfPayment'] != null
           ? DateTime.parse(json['DateOfPayment'])
           : json['dateOfPayment'] != null
-              ? DateTime.parse(json['dateOfPayment'])
-              : DateTime.now(),
+          ? DateTime.parse(json['dateOfPayment'])
+          : DateTime.now(),
       paymentNumber: json['PaymentNumber'] ?? json['paymentNumber'] ?? '',
       force: json['Force'] ?? json['force'] ?? true,
       receiptNumber: json['ReceiptNumber'] ?? json['receiptNumber'] ?? '',
@@ -159,7 +159,8 @@ class Repayment {
   /// Generate receipt number: "Petefin" + timestamp to milliseconds
   static String generateReceiptNumber() {
     final now = DateTime.now();
-    final formatter = '${now.year.toString().padLeft(4, '0')}'
+    final formatter =
+        '${now.year.toString().padLeft(4, '0')}'
         '${now.month.toString().padLeft(2, '0')}'
         '${now.day.toString().padLeft(2, '0')}'
         '${now.hour.toString().padLeft(2, '0')}'

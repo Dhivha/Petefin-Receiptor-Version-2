@@ -23,11 +23,7 @@ class _ManageTransfersScreenState extends State<ManageTransfersScreen> {
   bool _isLoading = false;
   bool _isCreatingTransfer = false;
 
-  final List<String> _transferTypes = [
-    'USD_CASH',
-    'USD_BANK', 
-    'ZWG_BANK',
-  ];
+  final List<String> _transferTypes = ['USD_CASH', 'USD_BANK', 'ZWG_BANK'];
 
   final Map<String, String> _transferTypeDisplayNames = {
     'USD_CASH': 'USD Cash Transfer',
@@ -54,13 +50,13 @@ class _ManageTransfersScreenState extends State<ManageTransfersScreen> {
     try {
       final branches = await _authService.getAllBranches();
       final currentUser = _authService.currentUser;
-      
+
       if (currentUser != null) {
         // Filter out user's own branch - can't transfer to self
-        final availableBranches = branches.where((branch) => 
-          branch.branchId != currentUser.branchId
-        ).toList();
-        
+        final availableBranches = branches
+            .where((branch) => branch.branchId != currentUser.branchId)
+            .toList();
+
         if (mounted) {
           setState(() {
             _availableBranches = availableBranches;
@@ -79,7 +75,7 @@ class _ManageTransfersScreenState extends State<ManageTransfersScreen> {
   Future<void> _selectDate() async {
     final now = DateTime.now();
     final twoDaysAgo = now.subtract(Duration(days: 2));
-    
+
     final selectedDate = await showDatePicker(
       context: context,
       initialDate: _selectedDate,
@@ -111,7 +107,7 @@ class _ManageTransfersScreenState extends State<ManageTransfersScreen> {
 
     try {
       final amount = double.parse(_amountController.text.trim());
-      
+
       final result = await _authService.createTransfer(
         amount: amount,
         transferDate: _selectedDate,
@@ -122,7 +118,7 @@ class _ManageTransfersScreenState extends State<ManageTransfersScreen> {
 
       if (mounted) {
         setState(() => _isCreatingTransfer = false);
-        
+
         if (result.success) {
           _showSuccessDialog(result.message);
           _resetForm();
@@ -153,39 +149,49 @@ class _ManageTransfersScreenState extends State<ManageTransfersScreen> {
     if (currentUser == null) return false;
 
     return await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Confirm Transfer'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Transfer Details:', style: TextStyle(fontWeight: FontWeight.bold)),
-            SizedBox(height: 8),
-            Text('Type: ${_transferTypeDisplayNames[_selectedTransferType]}'),
-            Text('Amount: ${_getAmountDisplay()}'),
-            Text('From: ${currentUser.branch}'),
-            Text('To: ${_selectedReceivingBranch?.branchName ?? 'Unknown'}'),
-            Text('Date: ${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}'),
-            SizedBox(height: 12),
-            Text(
-              'This transfer will be queued and synced automatically when internet is available.',
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('Confirm Transfer'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Transfer Details:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Type: ${_transferTypeDisplayNames[_selectedTransferType]}',
+                ),
+                Text('Amount: ${_getAmountDisplay()}'),
+                Text('From: ${currentUser.branch}'),
+                Text(
+                  'To: ${_selectedReceivingBranch?.branchName ?? 'Unknown'}',
+                ),
+                Text(
+                  'Date: ${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}',
+                ),
+                SizedBox(height: 12),
+                Text(
+                  'This transfer will be queued and synced automatically when internet is available.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
             ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text('Cancel'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: Text('Confirm Transfer'),
+              ),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text('Confirm Transfer'),
-          ),
-        ],
-      ),
-    ) ?? false;
+        ) ??
+        false;
   }
 
   void _showSuccessDialog(String message) {
@@ -221,26 +227,25 @@ class _ManageTransfersScreenState extends State<ManageTransfersScreen> {
   }
 
   void _navigateToTrackTransfers() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (context) => TrackTransfersScreen()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (context) => TrackTransfersScreen()));
   }
 
   String _getAmountDisplay() {
     final amount = double.tryParse(_amountController.text.trim()) ?? 0.0;
-    final currencySymbol = _selectedTransferType.startsWith('USD') ? '\$' : 'ZWG ';
+    final currencySymbol = _selectedTransferType.startsWith('USD')
+        ? '\$'
+        : 'ZWG ';
     return '$currencySymbol${amount.toStringAsFixed(2)}';
   }
 
   @override
   Widget build(BuildContext context) {
     final currentUser = _authService.currentUser;
-    
+
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Manage Transfers'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: Text('Manage Transfers'), centerTitle: true),
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -317,7 +322,9 @@ class _ManageTransfersScreenState extends State<ManageTransfersScreen> {
                               items: _transferTypes.map((type) {
                                 return DropdownMenuItem(
                                   value: type,
-                                  child: Text(_transferTypeDisplayNames[type] ?? type),
+                                  child: Text(
+                                    _transferTypeDisplayNames[type] ?? type,
+                                  ),
                                 );
                               }).toList(),
                               onChanged: (value) {
@@ -325,20 +332,26 @@ class _ManageTransfersScreenState extends State<ManageTransfersScreen> {
                                   setState(() => _selectedTransferType = value);
                                 }
                               },
-                              validator: (value) =>
-                                  value == null ? 'Please select transfer type' : null,
+                              validator: (value) => value == null
+                                  ? 'Please select transfer type'
+                                  : null,
                             ),
                             SizedBox(height: 16),
 
                             // Amount field
                             TextFormField(
                               controller: _amountController,
-                              keyboardType: TextInputType.numberWithOptions(decimal: true),
+                              keyboardType: TextInputType.numberWithOptions(
+                                decimal: true,
+                              ),
                               decoration: InputDecoration(
                                 labelText: 'Amount',
                                 border: OutlineInputBorder(),
                                 prefixIcon: Icon(Icons.attach_money),
-                                suffixText: _selectedTransferType.startsWith('USD') ? 'USD' : 'ZWG',
+                                suffixText:
+                                    _selectedTransferType.startsWith('USD')
+                                    ? 'USD'
+                                    : 'ZWG',
                               ),
                               validator: (value) {
                                 if (value == null || value.trim().isEmpty) {
@@ -350,7 +363,8 @@ class _ManageTransfersScreenState extends State<ManageTransfersScreen> {
                                 }
                                 return null;
                               },
-                              onChanged: (value) => setState(() {}), // Refresh display
+                              onChanged: (value) =>
+                                  setState(() {}), // Refresh display
                             ),
                             SizedBox(height: 16),
 
@@ -370,10 +384,13 @@ class _ManageTransfersScreenState extends State<ManageTransfersScreen> {
                                 );
                               }).toList(),
                               onChanged: (branch) {
-                                setState(() => _selectedReceivingBranch = branch);
+                                setState(
+                                  () => _selectedReceivingBranch = branch,
+                                );
                               },
-                              validator: (value) =>
-                                  value == null ? 'Please select receiving branch' : null,
+                              validator: (value) => value == null
+                                  ? 'Please select receiving branch'
+                                  : null,
                             ),
                             SizedBox(height: 16),
 
@@ -403,15 +420,23 @@ class _ManageTransfersScreenState extends State<ManageTransfersScreen> {
 
                             // Create transfer button
                             ElevatedButton.icon(
-                              onPressed: _isCreatingTransfer ? null : _createTransfer,
+                              onPressed: _isCreatingTransfer
+                                  ? null
+                                  : _createTransfer,
                               icon: _isCreatingTransfer
                                   ? SizedBox(
                                       width: 16,
                                       height: 16,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
                                     )
                                   : Icon(Icons.send),
-                              label: Text(_isCreatingTransfer ? 'Creating...' : 'Create Transfer'),
+                              label: Text(
+                                _isCreatingTransfer
+                                    ? 'Creating...'
+                                    : 'Create Transfer',
+                              ),
                               style: ElevatedButton.styleFrom(
                                 padding: EdgeInsets.symmetric(vertical: 16),
                               ),

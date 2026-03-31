@@ -51,7 +51,9 @@ class RequestBalance {
         orElse: () => RequestBalanceStatus.pending,
       ),
       requestedAt: DateTime.parse(map['requestedAt']),
-      syncedAt: map['syncedAt'] != null ? DateTime.parse(map['syncedAt']) : null,
+      syncedAt: map['syncedAt'] != null
+          ? DateTime.parse(map['syncedAt'])
+          : null,
       errorMessage: map['errorMessage'],
     );
   }
@@ -68,7 +70,8 @@ class RequestBalance {
 
   String get formattedDate => DateFormat('dd/MM/yyyy').format(cashbookDate);
   String get formattedAmount => 'USD ${amount.toStringAsFixed(2)}';
-  String get formattedDateTime => DateFormat('dd/MM/yyyy HH:mm').format(requestedAt);
+  String get formattedDateTime =>
+      DateFormat('dd/MM/yyyy HH:mm').format(requestedAt);
 
   RequestBalance copyWith({
     int? id,

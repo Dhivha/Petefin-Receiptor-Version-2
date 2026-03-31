@@ -62,11 +62,13 @@ class Expense {
   }
 
   Map<String, dynamic> toJson() {
+    // Zero out time portion - backend only cares about the date
+    final dateOnly = DateTime.utc(expenseDate.year, expenseDate.month, expenseDate.day);
     return {
       'BranchName': branchName,
       'Category': category,
       'Amount': amount,
-      'ExpenseDate': expenseDate.toIso8601String(),
+      'ExpenseDate': dateOnly.toIso8601String(),
     };
   }
 

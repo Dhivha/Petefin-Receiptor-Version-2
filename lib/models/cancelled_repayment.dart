@@ -42,16 +42,16 @@ class CancelledRepayment {
       dateOfPayment: json['dateOfPayment'] != null
           ? DateTime.parse(json['dateOfPayment'])
           : json['DateOfPayment'] != null
-              ? DateTime.parse(json['DateOfPayment'])
-              : DateTime.now(),
+          ? DateTime.parse(json['DateOfPayment'])
+          : DateTime.now(),
       reason: json['reason'] ?? json['Reason'] ?? '',
       branch: json['branch'] ?? json['Branch'] ?? '',
       cancelledBy: json['cancelledBy'] ?? json['CancelledBy'] ?? '',
       dateTimeCancelled: json['dateTimeCancelled'] != null
           ? DateTime.parse(json['dateTimeCancelled'])
           : json['DateTimeCancelled'] != null
-              ? DateTime.parse(json['DateTimeCancelled'])
-              : DateTime.now(),
+          ? DateTime.parse(json['DateTimeCancelled'])
+          : DateTime.now(),
       firstName: json['firstName'] ?? json['FirstName'],
       lastName: json['lastName'] ?? json['LastName'],
       whatsAppContact: json['whatsAppContact'] ?? json['WhatsAppContact'],

@@ -1,12 +1,7 @@
 import 'dart:convert';
 import 'package:intl/intl.dart';
 
-enum DownloadStatus {
-  pending,
-  downloading,
-  completed,
-  failed,
-}
+enum DownloadStatus { pending, downloading, completed, failed }
 
 class CashbookDownload {
   final int? id;
@@ -54,11 +49,15 @@ class CashbookDownload {
   }
 
   bool get canOpen {
-    return status == DownloadStatus.completed && filePath != null && filePath!.isNotEmpty;
+    return status == DownloadStatus.completed &&
+        filePath != null &&
+        filePath!.isNotEmpty;
   }
 
   bool get canShare {
-    return status == DownloadStatus.completed && filePath != null && filePath!.isNotEmpty;
+    return status == DownloadStatus.completed &&
+        filePath != null &&
+        filePath!.isNotEmpty;
   }
 
   Map<String, dynamic> toMap() {
@@ -84,7 +83,7 @@ class CashbookDownload {
         orElse: () => DownloadStatus.pending,
       ),
       requestedAt: DateTime.parse(map['requestedAt']),
-      completedAt: map['completedAt'] != null 
+      completedAt: map['completedAt'] != null
           ? DateTime.parse(map['completedAt'])
           : null,
       filePath: map['filePath'],
@@ -94,7 +93,7 @@ class CashbookDownload {
 
   String toJson() => json.encode(toMap());
 
-  factory CashbookDownload.fromJson(String source) => 
+  factory CashbookDownload.fromJson(String source) =>
       CashbookDownload.fromMap(json.decode(source));
 
   @override

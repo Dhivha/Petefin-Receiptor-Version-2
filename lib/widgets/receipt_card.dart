@@ -43,9 +43,9 @@ class ReceiptCard extends StatelessWidget {
                   _buildStatusChip(receipt.status),
                 ],
               ),
-              
+
               const SizedBox(height: 8),
-              
+
               // Amount and Category Row
               Row(
                 children: [
@@ -64,11 +64,7 @@ class ReceiptCard extends StatelessWidget {
                   ),
                   const Spacer(),
                   if (receipt.category != null) ...[
-                    Icon(
-                      Icons.category,
-                      size: 14,
-                      color: Colors.grey.shade600,
-                    ),
+                    Icon(Icons.category, size: 14, color: Colors.grey.shade600),
                     const SizedBox(width: 4),
                     Text(
                       receipt.category!,
@@ -80,22 +76,19 @@ class ReceiptCard extends StatelessWidget {
                   ],
                 ],
               ),
-              
+
               const SizedBox(height: 8),
-              
+
               // Description
               Text(
                 receipt.description,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey.shade700,
-                ),
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-              
+
               const SizedBox(height: 12),
-              
+
               // Footer Row
               Row(
                 children: [
@@ -107,13 +100,10 @@ class ReceiptCard extends StatelessWidget {
                   const SizedBox(width: 4),
                   Text(
                     _formatDate(receipt.createdAt),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade600,
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                   const Spacer(),
-                  
+
                   // Action Buttons
                   Row(
                     mainAxisSize: MainAxisSize.min,
@@ -187,11 +177,7 @@ class ReceiptCard extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            size: 12,
-            color: textColor,
-          ),
+          Icon(icon, size: 12, color: textColor),
           const SizedBox(width: 4),
           Text(
             status.displayName,

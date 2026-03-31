@@ -14,6 +14,10 @@ class Client {
   final String nextOfKinName;
   final String relationshipWithNOK;
   final String pin;
+  final String? photo; // Base64 encoded photo or photo URL
+  final String syncStatus; // 'queued', 'synced'
+  final DateTime createdAt;
+  final DateTime? lastSynced;
 
   Client({
     required this.clientId,
@@ -31,7 +35,11 @@ class Client {
     required this.nextOfKinName,
     required this.relationshipWithNOK,
     required this.pin,
-  });
+    this.photo,
+    this.syncStatus = 'queued',
+    DateTime? createdAt,
+    this.lastSynced,
+  }) : createdAt = createdAt ?? DateTime.now();
 
   factory Client.fromJson(Map<String, dynamic> json) {
     return Client(
@@ -50,6 +58,10 @@ class Client {
       nextOfKinName: json['NextOfKinName'] ?? '',
       relationshipWithNOK: json['RelationshipWithNOK'] ?? '',
       pin: json['Pin'] ?? '',
+      photo: json['Photo'],
+      syncStatus: 'synced', // API data is always synced
+      createdAt: DateTime.now(),
+      lastSynced: DateTime.now(),
     );
   }
 
@@ -70,6 +82,7 @@ class Client {
       'NextOfKinName': nextOfKinName,
       'RelationshipWithNOK': relationshipWithNOK,
       'Pin': pin,
+      if (photo != null) 'Photo': photo,
     };
   }
 
@@ -90,7 +103,10 @@ class Client {
       'nextOfKinName': nextOfKinName,
       'relationshipWithNOK': relationshipWithNOK,
       'pin': pin,
-      'lastSynced': DateTime.now().millisecondsSinceEpoch,
+      'photo': photo,
+      'syncStatus': syncStatus,
+      'createdAt': createdAt.millisecondsSinceEpoch,
+      'lastSynced': lastSynced?.millisecondsSinceEpoch,
     };
   }
 
@@ -111,6 +127,14 @@ class Client {
       nextOfKinName: map['nextOfKinName'] ?? '',
       relationshipWithNOK: map['relationshipWithNOK'] ?? '',
       pin: map['pin'] ?? '',
+      photo: map['photo'],
+      syncStatus: map['syncStatus'] ?? 'queued',
+      createdAt: map['createdAt'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['createdAt'])
+          : DateTime.now(),
+      lastSynced: map['lastSynced'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['lastSynced'])
+          : null,
     );
   }
 
@@ -130,6 +154,10 @@ class Client {
     String? nextOfKinName,
     String? relationshipWithNOK,
     String? pin,
+    String? photo,
+    String? syncStatus,
+    DateTime? createdAt,
+    DateTime? lastSynced,
   }) {
     return Client(
       clientId: clientId ?? this.clientId,
@@ -147,6 +175,10 @@ class Client {
       nextOfKinName: nextOfKinName ?? this.nextOfKinName,
       relationshipWithNOK: relationshipWithNOK ?? this.relationshipWithNOK,
       pin: pin ?? this.pin,
+      photo: photo ?? this.photo,
+      syncStatus: syncStatus ?? this.syncStatus,
+      createdAt: createdAt ?? this.createdAt,
+      lastSynced: lastSynced ?? this.lastSynced,
     );
   }
 

@@ -29,7 +29,7 @@ class AdminFee {
       id: json['id']?.toString(),
       firstName: json['FirstName'] ?? '',
       lastName: json['LastName'] ?? '',
-      dateTimeCaptured: json['DateTimeCaptured'] != null 
+      dateTimeCaptured: json['DateTimeCaptured'] != null
           ? DateTime.parse(json['DateTimeCaptured'])
           : DateTime.now(),
       amount: (json['Amount'] ?? 0.0).toDouble(),

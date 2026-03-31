@@ -62,17 +62,17 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
     _mainTabController = TabController(length: 2, vsync: this);
     _adminTabController = TabController(length: 3, vsync: this);
     _fcbTabController = TabController(length: 3, vsync: this);
-    
+
     _loadClients();
     _loadNextReceiptNumber();
     _loadAllData();
-    
+
     // Auto-sync pending cancellations on startup
     _syncPendingCancellations();
-    
+
     // Set FCB amount to 1.00 by default
     _amountController.text = '1.00';
-    
+
     _mainTabController.addListener(() {
       if (_mainTabController.index == 1) {
         // FCB tab - set amount to 1.00
@@ -140,9 +140,9 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
       _lastNameController.text = client.lastName ?? '';
       _useManualEntry = false;
     });
-    
+
     print('Selected client: ${client.firstName} ${client.lastName}');
-    
+
     // Show success feedback
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -151,7 +151,7 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
         duration: const Duration(seconds: 2),
       ),
     );
-    
+
     // Auto focus on amount field after short delay (if Admin tab)
     if (_mainTabController.index == 0) {
       Future.delayed(const Duration(milliseconds: 500), () {
@@ -167,7 +167,7 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
       _searchController.clear();
       _firstNameController.clear();
       _lastNameController.clear();
-      
+
       if (_useManualEntry) {
         // Enable text fields for manual entry
         print('Manual entry enabled');
@@ -200,23 +200,24 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
       setState(() {
         _queuedAdminFees.add(adminFee);
       });
-      
+
       // Print receipt immediately (offline-first)
       BluetoothReceiptService.autoPrintAdminFeeReceipt(adminFee);
-      
+
       // Mark receipt number as used
-      await _authService.markReceiptNumberAsUsed(_nextReceiptNumber!.receiptNum);
-      
+      await _authService.markReceiptNumberAsUsed(
+        _nextReceiptNumber!.receiptNum,
+      );
+
       // Show success message (always successful offline)
       _showSuccessDialog('Admin Fee Receipt', adminFee.receiptNumber);
-      
+
       // Reset form and load new receipt number
       _resetForm();
       await _loadNextReceiptNumber();
-      
+
       // Try to sync in background without blocking user
       _syncAdminFeeInBackground(adminFee);
-      
     } catch (e) {
       _showErrorMessage('Error processing admin fee: $e');
     } finally {
@@ -248,23 +249,24 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
       setState(() {
         _queuedFCBReceipts.add(fcbReceipt);
       });
-      
+
       // Print receipt immediately (offline-first)
       BluetoothReceiptService.autoPrintFCBReceipt(fcbReceipt);
-      
+
       // Mark receipt number as used
-      await _authService.markReceiptNumberAsUsed(_nextReceiptNumber!.receiptNum);
-      
+      await _authService.markReceiptNumberAsUsed(
+        _nextReceiptNumber!.receiptNum,
+      );
+
       // Show success message (always successful offline)
       _showSuccessDialog('FCB Receipt', fcbReceipt.receiptNumber);
-      
+
       // Reset form and load new receipt number
       _resetForm();
       await _loadNextReceiptNumber();
-      
+
       // Try to sync in background without blocking user
       _syncFCBReceiptInBackground(fcbReceipt);
-      
     } catch (e) {
       _showErrorMessage('Error processing FCB receipt: $e');
     } finally {
@@ -281,7 +283,8 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
       return false;
     }
 
-    if (_mainTabController.index == 0 && _amountController.text.trim().isEmpty) {
+    if (_mainTabController.index == 0 &&
+        _amountController.text.trim().isEmpty) {
       _showErrorMessage('Please enter amount for admin fee');
       return false;
     }
@@ -304,7 +307,7 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
     _firstNameController.clear();
     _lastNameController.clear();
     _amountController.clear();
-    
+
     // Set FCB amount back to 1.00 if on FCB tab
     if (_mainTabController.index == 1) {
       _amountController.text = '1.00';
@@ -338,21 +341,18 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
 
   void _showErrorMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-      ),
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
   }
 
   List<Client> _getFilteredClients() {
     if (_clients.isEmpty) return [];
-    
+
     final query = _searchController.text.toLowerCase().trim();
     if (query.isEmpty) {
       return List.from(_clients); // Return a copy to avoid modification issues
     }
-    
+
     try {
       return _clients.where((client) {
         final fullName = client.fullName.toLowerCase();
@@ -389,15 +389,12 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
               ],
             ),
           ),
-          
+
           // Content
           Expanded(
             child: TabBarView(
               controller: _mainTabController,
-              children: [
-                _buildAdminFeesTab(),
-                _buildFCBReceiptsTab(),
-              ],
+              children: [_buildAdminFeesTab(), _buildFCBReceiptsTab()],
             ),
           ),
         ],
@@ -427,7 +424,7 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
             ],
           ),
         ),
-        
+
         Expanded(
           child: TabBarView(
             controller: _adminTabController,
@@ -460,7 +457,7 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
             ],
           ),
         ),
-        
+
         Expanded(
           child: TabBarView(
             controller: _fcbTabController,
@@ -599,7 +596,7 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
 
   void _showCreateDialog() {
     _resetForm();
-    
+
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -612,16 +609,17 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
             children: [
               Text(
                 'Create ${_mainTabController.index == 0 ? 'Admin Fee' : 'FCB'} Receipt',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 20),
-              
-              Expanded(
-                child: _buildCreateForm(),
-              ),
-              
+
+              Expanded(child: _buildCreateForm()),
+
               const SizedBox(height: 20),
-              
+
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
@@ -631,15 +629,17 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
                   ),
                   const SizedBox(width: 10),
                   ElevatedButton(
-                    onPressed: _isProcessing ? null : () {
-                      Navigator.pop(context);
-                      if (_mainTabController.index == 0) {
-                        _processAdminFee();
-                      } else {
-                        _processFCBReceipt();
-                      }
-                    },
-                    child: _isProcessing 
+                    onPressed: _isProcessing
+                        ? null
+                        : () {
+                            Navigator.pop(context);
+                            if (_mainTabController.index == 0) {
+                              _processAdminFee();
+                            } else {
+                              _processFCBReceipt();
+                            }
+                          },
+                    child: _isProcessing
                         ? const SizedBox(
                             width: 20,
                             height: 20,
@@ -665,23 +665,35 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: BluetoothReceiptService.isConnected ? Colors.green[50] : Colors.red[50],
+              color: BluetoothReceiptService.isConnected
+                  ? Colors.green[50]
+                  : Colors.red[50],
               border: Border.all(
-                color: BluetoothReceiptService.isConnected ? Colors.green : Colors.red,
+                color: BluetoothReceiptService.isConnected
+                    ? Colors.green
+                    : Colors.red,
               ),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
               children: [
                 Icon(
-                  BluetoothReceiptService.isConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-                  color: BluetoothReceiptService.isConnected ? Colors.green : Colors.red,
+                  BluetoothReceiptService.isConnected
+                      ? Icons.bluetooth_connected
+                      : Icons.bluetooth_disabled,
+                  color: BluetoothReceiptService.isConnected
+                      ? Colors.green
+                      : Colors.red,
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  BluetoothReceiptService.isConnected ? 'Printer Connected' : 'No Printer Connected',
+                  BluetoothReceiptService.isConnected
+                      ? 'Printer Connected'
+                      : 'No Printer Connected',
                   style: TextStyle(
-                    color: BluetoothReceiptService.isConnected ? Colors.green : Colors.red,
+                    color: BluetoothReceiptService.isConnected
+                        ? Colors.green
+                        : Colors.red,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -736,17 +748,22 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _useManualEntry ? 'MANUAL ENTRY MODE' : 'CLIENT SELECTION MODE',
+                        _useManualEntry
+                            ? 'MANUAL ENTRY MODE'
+                            : 'CLIENT SELECTION MODE',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           color: _useManualEntry ? Colors.orange : Colors.blue,
                         ),
                       ),
                       Text(
-                        _useManualEntry 
-                          ? 'Enter names manually (non-client)'
-                          : 'Select from existing clients',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        _useManualEntry
+                            ? 'Enter names manually (non-client)'
+                            : 'Select from existing clients',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
                       ),
                     ],
                   ),
@@ -772,7 +789,9 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
                     labelText: 'First Name *',
                     border: const OutlineInputBorder(),
                     filled: true,
-                    fillColor: _useManualEntry ? Colors.white : Colors.grey[100],
+                    fillColor: _useManualEntry
+                        ? Colors.white
+                        : Colors.grey[100],
                   ),
                   enabled: _useManualEntry,
                   style: TextStyle(
@@ -788,7 +807,9 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
                     labelText: 'Last Name *',
                     border: const OutlineInputBorder(),
                     filled: true,
-                    fillColor: _useManualEntry ? Colors.white : Colors.grey[100],
+                    fillColor: _useManualEntry
+                        ? Colors.white
+                        : Colors.grey[100],
                   ),
                   enabled: _useManualEntry,
                   style: TextStyle(
@@ -805,12 +826,15 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
             controller: _amountController,
             focusNode: _amountFocusNode,
             decoration: InputDecoration(
-              labelText: _mainTabController.index == 0 ? 'Amount *' : 'Amount (Fixed)',
+              labelText: _mainTabController.index == 0
+                  ? 'Amount *'
+                  : 'Amount (Fixed)',
               border: const OutlineInputBorder(),
               prefixText: '\$',
             ),
             keyboardType: TextInputType.number,
-            enabled: _mainTabController.index == 0, // Only enabled for Admin fees
+            enabled:
+                _mainTabController.index == 0, // Only enabled for Admin fees
             inputFormatters: [
               FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
             ],
@@ -825,7 +849,7 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
 
   Widget _buildClientSelection() {
     final filteredClients = _getFilteredClients();
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -843,7 +867,7 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
           },
         ),
         const SizedBox(height: 8),
-        
+
         // Show selected client info prominently
         if (_selectedClient != null)
           Container(
@@ -859,7 +883,11 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.check_circle, color: Colors.green, size: 24),
+                    const Icon(
+                      Icons.check_circle,
+                      color: Colors.green,
+                      size: 24,
+                    ),
                     const SizedBox(width: 8),
                     const Text(
                       'SELECTED CLIENT',
@@ -874,7 +902,10 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
                 const SizedBox(height: 8),
                 Text(
                   'Name: ${_selectedClient!.fullName}',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 Text(
                   'ID: ${_selectedClient!.clientId}',
@@ -901,7 +932,7 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
               ],
             ),
           ),
-        
+
         if (_selectedClient == null) ...[
           const SizedBox(height: 8),
           Container(
@@ -913,33 +944,33 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
             child: _isLoadingClients
                 ? const Center(child: CircularProgressIndicator())
                 : filteredClients.isEmpty
-                    ? const Center(
-                        child: Text(
-                          'No clients found',
-                          style: TextStyle(color: Colors.grey),
+                ? const Center(
+                    child: Text(
+                      'No clients found',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: filteredClients.length,
+                    itemBuilder: (context, index) {
+                      if (index >= filteredClients.length) {
+                        return const SizedBox(); // Safety check
+                      }
+
+                      final client = filteredClients[index];
+
+                      return ListTile(
+                        dense: true,
+                        title: Text(
+                          client.fullName,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
-                      )
-                    : ListView.builder(
-                        itemCount: filteredClients.length,
-                        itemBuilder: (context, index) {
-                          if (index >= filteredClients.length) {
-                            return const SizedBox(); // Safety check
-                          }
-                          
-                          final client = filteredClients[index];
-                          
-                          return ListTile(
-                            dense: true,
-                            title: Text(
-                              client.fullName,
-                              style: const TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                            subtitle: Text('ID: ${client.clientId}'),
-                            onTap: () => _onClientSelected(client),
-                            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                          );
-                        },
-                      ),
+                        subtitle: Text('ID: ${client.clientId}'),
+                        onTap: () => _onClientSelected(client),
+                        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      );
+                    },
+                  ),
           ),
         ],
       ],
@@ -1029,22 +1060,27 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
         "Branch": _authService.currentUser?.branch ?? "",
         "ReceiptNumber": fee.receiptNumber,
         "DateOfPayment": fee.dateTimeCaptured.toIso8601String(),
-        "CancelledBy": "${_authService.currentUser?.firstName} ${_authService.currentUser?.lastName}",
-        "Reason": _cancellationReason.isEmpty ? "No reason provided" : _cancellationReason,
+        "CancelledBy":
+            "${_authService.currentUser?.firstName} ${_authService.currentUser?.lastName}",
+        "Reason": _cancellationReason.isEmpty
+            ? "No reason provided"
+            : _cancellationReason,
         "Amount": fee.amount,
       };
 
       // Try to cancel online first
       try {
-        final response = await _apiService.postCancelledAdminReceipt(cancellationData);
-        
+        final response = await _apiService.postCancelledAdminReceipt(
+          cancellationData,
+        );
+
         if (response.statusCode == 200) {
           // Success - move to cancelled
           setState(() {
             _syncedAdminFees.remove(fee);
             _cancelledAdminFees.add(fee);
           });
-          
+
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Successfully cancelled ${fee.receiptNumber}'),
@@ -1061,7 +1097,6 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
         await _storePendingCancellation('admin', cancellationData);
         _showOfflineCancellationMessage(fee.receiptNumber);
       }
-      
     } catch (e) {
       _showErrorMessage('Error cancelling receipt: $e');
     }
@@ -1073,22 +1108,27 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
         "Branch": _authService.currentUser?.branch ?? "",
         "ReceiptNumber": receipt.receiptNumber,
         "DateOfPayment": receipt.dateTimeCaptured.toIso8601String(),
-        "CancelledBy": "${_authService.currentUser?.firstName} ${_authService.currentUser?.lastName}",
-        "Reason": _cancellationReason.isEmpty ? "No reason provided" : _cancellationReason,
+        "CancelledBy":
+            "${_authService.currentUser?.firstName} ${_authService.currentUser?.lastName}",
+        "Reason": _cancellationReason.isEmpty
+            ? "No reason provided"
+            : _cancellationReason,
         "Amount": receipt.amount,
       };
 
       // Try to cancel online first
       try {
-        final response = await _apiService.postCancelledAdminReceipt(cancellationData);
-        
+        final response = await _apiService.postCancelledAdminReceipt(
+          cancellationData,
+        );
+
         if (response.statusCode == 200) {
           // Success - move to cancelled
           setState(() {
             _syncedFCBReceipts.remove(receipt);
             _cancelledFCBReceipts.add(receipt);
           });
-          
+
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Successfully cancelled ${receipt.receiptNumber}'),
@@ -1105,20 +1145,22 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
         await _storePendingCancellation('fcb', cancellationData);
         _showOfflineCancellationMessage(receipt.receiptNumber);
       }
-      
     } catch (e) {
       _showErrorMessage('Error cancelling receipt: $e');
     }
   }
 
-  Future<void> _storePendingCancellation(String type, Map<String, dynamic> data) async {
+  Future<void> _storePendingCancellation(
+    String type,
+    Map<String, dynamic> data,
+  ) async {
     // Store in AuthService pending cancellations
     final prefs = await SharedPreferences.getInstance();
     final pendingKey = 'pending_cancellations_$type';
     final existing = prefs.getStringList(pendingKey) ?? [];
     existing.add(json.encode(data));
     await prefs.setStringList(pendingKey, existing);
-    
+
     // Start background sync
     _syncPendingCancellations();
   }
@@ -1126,7 +1168,9 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
   void _showOfflineCancellationMessage(String receiptNumber) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Receipt $receiptNumber cancelled offline. Will sync when online.'),
+        content: Text(
+          'Receipt $receiptNumber cancelled offline. Will sync when online.',
+        ),
         backgroundColor: Colors.orange,
         duration: const Duration(seconds: 4),
       ),
@@ -1136,16 +1180,17 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
   Future<void> _syncPendingCancellations() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      
+
       // Sync admin cancellations
-      final pendingAdmin = prefs.getStringList('pending_cancellations_admin') ?? [];
+      final pendingAdmin =
+          prefs.getStringList('pending_cancellations_admin') ?? [];
       final remainingAdmin = <String>[];
-      
+
       for (final cancellationJson in pendingAdmin) {
         try {
           final data = json.decode(cancellationJson);
           final response = await _apiService.cancelAdminReceipt(data);
-          
+
           if (response.statusCode != 200) {
             remainingAdmin.add(cancellationJson); // Keep for retry
           }
@@ -1153,18 +1198,18 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
           remainingAdmin.add(cancellationJson); // Keep for retry
         }
       }
-      
+
       await prefs.setStringList('pending_cancellations_admin', remainingAdmin);
-      
+
       // Sync FCB cancellations
       final pendingFCB = prefs.getStringList('pending_cancellations_fcb') ?? [];
       final remainingFCB = <String>[];
-      
+
       for (final cancellationJson in pendingFCB) {
         try {
           final data = json.decode(cancellationJson);
           final response = await _apiService.cancelFCBReceipt(data);
-          
+
           if (response.statusCode != 200) {
             remainingFCB.add(cancellationJson); // Keep for retry
           }
@@ -1172,9 +1217,8 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
           remainingFCB.add(cancellationJson); // Keep for retry
         }
       }
-      
+
       await prefs.setStringList('pending_cancellations_fcb', remainingFCB);
-      
     } catch (e) {
       print('Error syncing pending cancellations: $e');
     }
@@ -1184,25 +1228,33 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
   Future<void> _syncAdminFeeInBackground(AdminFee adminFee) async {
     try {
       print('🔄 Background sync: Admin fee ${adminFee.receiptNumber}');
-      
+
       // Try to sync to API
-      final response = await _apiService.postAdminFeesReceipt(adminFee.toJson());
-      
+      final response = await _apiService.postAdminFeesReceipt(
+        adminFee.toJson(),
+      );
+
       if (response.statusCode == 200) {
         // Success - move from queued to synced
         if (mounted) {
           setState(() {
-            _queuedAdminFees.removeWhere((fee) => fee.receiptNumber == adminFee.receiptNumber);
+            _queuedAdminFees.removeWhere(
+              (fee) => fee.receiptNumber == adminFee.receiptNumber,
+            );
             _syncedAdminFees.add(adminFee);
           });
         }
-        print('✅ Background sync successful: Admin fee ${adminFee.receiptNumber}');
+        print(
+          '✅ Background sync successful: Admin fee ${adminFee.receiptNumber}',
+        );
       } else {
         print('❌ Background sync failed: Admin fee ${adminFee.receiptNumber}');
         // Stay in queued list for retry
       }
     } catch (e) {
-      print('❌ Background sync error: Admin fee ${adminFee.receiptNumber} - $e');
+      print(
+        '❌ Background sync error: Admin fee ${adminFee.receiptNumber} - $e',
+      );
       // Stay in queued list for retry
     }
   }
@@ -1211,25 +1263,33 @@ class _AdminReceiptsScreenState extends State<AdminReceiptsScreen>
   Future<void> _syncFCBReceiptInBackground(FCBReceipt fcbReceipt) async {
     try {
       print('🔄 Background sync: FCB receipt ${fcbReceipt.receiptNumber}');
-      
+
       // Try to sync to API
       final response = await _apiService.postFCBReceipt(fcbReceipt.toJson());
-      
+
       if (response.statusCode == 200) {
         // Success - move from queued to synced
         if (mounted) {
           setState(() {
-            _queuedFCBReceipts.removeWhere((receipt) => receipt.receiptNumber == fcbReceipt.receiptNumber);
+            _queuedFCBReceipts.removeWhere(
+              (receipt) => receipt.receiptNumber == fcbReceipt.receiptNumber,
+            );
             _syncedFCBReceipts.add(fcbReceipt);
           });
         }
-        print('✅ Background sync successful: FCB receipt ${fcbReceipt.receiptNumber}');
+        print(
+          '✅ Background sync successful: FCB receipt ${fcbReceipt.receiptNumber}',
+        );
       } else {
-        print('❌ Background sync failed: FCB receipt ${fcbReceipt.receiptNumber}');
+        print(
+          '❌ Background sync failed: FCB receipt ${fcbReceipt.receiptNumber}',
+        );
         // Stay in queued list for retry
       }
     } catch (e) {
-      print('❌ Background sync error: FCB receipt ${fcbReceipt.receiptNumber} - $e');
+      print(
+        '❌ Background sync error: FCB receipt ${fcbReceipt.receiptNumber} - $e',
+      );
       // Stay in queued list for retry
     }
   }

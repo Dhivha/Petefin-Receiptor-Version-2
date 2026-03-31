@@ -110,7 +110,7 @@ class _RepaymentScreenState extends State<RepaymentScreen> {
       _filteredClients = _clients.where((client) {
         return client.fullName.toLowerCase().contains(query) ||
             client.clientId.toLowerCase().contains(query) ||
-               client.whatsAppContact.toLowerCase().contains(query);
+            client.whatsAppContact.toLowerCase().contains(query);
       }).toList();
     });
   }
@@ -137,22 +137,26 @@ class _RepaymentScreenState extends State<RepaymentScreen> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => RepaymentDetailScreen(
-                      client: client,
-                      currency: 'USD',
-                    ),
+                    builder: (context) =>
+                        RepaymentDetailScreen(client: client, currency: 'USD'),
                   ),
                 );
               },
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.green,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Text(
                   'USD (\$)',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ),
@@ -162,22 +166,26 @@ class _RepaymentScreenState extends State<RepaymentScreen> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => RepaymentDetailScreen(
-                      client: client,
-                      currency: 'ZWG',
-                    ),
+                    builder: (context) =>
+                        RepaymentDetailScreen(client: client, currency: 'ZWG'),
                   ),
                 );
               },
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.blue,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Text(
                   'ZWG',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ),
@@ -288,7 +296,9 @@ class _RepaymentScreenState extends State<RepaymentScreen> {
                                 Text('ID: ${client.clientId}'),
                                 Text('Phone: ${client.whatsAppContact}'),
                                 if (client.nationalIdNumber.isNotEmpty)
-                                  Text('National ID: ${client.nationalIdNumber}'),
+                                  Text(
+                                    'National ID: ${client.nationalIdNumber}',
+                                  ),
                               ],
                             ),
                             trailing: const Icon(

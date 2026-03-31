@@ -33,7 +33,9 @@ class PenaltyFee {
       dateTimeCaptured: DateTime.parse(map['dateTimeCaptured']),
       receiptNumber: map['receiptNumber'] ?? '',
       isSynced: (map['isSynced'] as int?) == 1,
-      syncedAt: map['syncedAt'] != null ? DateTime.parse(map['syncedAt']) : null,
+      syncedAt: map['syncedAt'] != null
+          ? DateTime.parse(map['syncedAt'])
+          : null,
       currency: map['currency'] ?? 'USD',
     );
   }
@@ -90,15 +92,14 @@ class PenaltyFee {
 
   // Mark as synced
   PenaltyFee markAsSynced() {
-    return copyWith(
-      isSynced: true,
-      syncedAt: DateTime.now(),
-    );
+    return copyWith(isSynced: true, syncedAt: DateTime.now());
   }
 
   // Formatted amount with currency
   String get formattedAmount {
-    final formatter = NumberFormat.currency(symbol: currency == 'USD' ? '\$' : 'ZWL ');
+    final formatter = NumberFormat.currency(
+      symbol: currency == 'USD' ? '\$' : 'ZWL ',
+    );
     return formatter.format(amount);
   }
 

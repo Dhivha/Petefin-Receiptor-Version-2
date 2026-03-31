@@ -34,10 +34,10 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
   Future<void> _initializeBluetooth() async {
     // Check permissions first
     await _requestPermissions();
-    
+
     // Get initial adapter state
     _adapterState = await FlutterBluePlus.adapterState.first;
-    
+
     // Listen to adapter state changes
     FlutterBluePlus.adapterState.listen((state) {
       setState(() {
@@ -58,15 +58,17 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
         Permission.bluetoothConnect,
         Permission.locationWhenInUse, // Still needed for some devices
       ].request();
-      
+
       print('Bluetooth permissions: $permissions');
-      
+
       // Check if critical permissions are granted
       if (!permissions[Permission.bluetoothScan]!.isGranted) {
         _showError('Bluetooth scan permission is required to find devices');
       }
       if (!permissions[Permission.bluetoothConnect]!.isGranted) {
-        _showError('Bluetooth connect permission is required to connect to devices');
+        _showError(
+          'Bluetooth connect permission is required to connect to devices',
+        );
       }
     }
   }
@@ -85,7 +87,7 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
     try {
       // Start scanning for devices
       await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
-      
+
       // Listen to scan results
       FlutterBluePlus.scanResults.listen((results) {
         setState(() {
@@ -96,7 +98,7 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
       // Stop scanning after timeout
       await Future.delayed(const Duration(seconds: 10));
       await FlutterBluePlus.stopScan();
-      
+
       setState(() {
         _isScanning = false;
       });
@@ -110,10 +112,12 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
 
   Future<void> _connectToDevice(BluetoothDevice device) async {
     try {
-      _showLoadingDialog('Connecting to ${device.platformName.isEmpty ? "Device" : device.platformName}...');
-      
+      _showLoadingDialog(
+        'Connecting to ${device.platformName.isEmpty ? "Device" : device.platformName}...',
+      );
+
       await device.connect(timeout: const Duration(seconds: 15));
-      
+
       setState(() {
         _selectedDevice = device;
         if (!_connectedDevices.contains(device)) {
@@ -125,10 +129,12 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
       BluetoothReceiptService.setConnectedDevice(device);
 
       Navigator.of(context).pop(); // Close loading dialog
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Connected to ${device.platformName.isEmpty ? "Device" : device.platformName}'),
+          content: Text(
+            'Connected to ${device.platformName.isEmpty ? "Device" : device.platformName}',
+          ),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
         ),
@@ -142,7 +148,7 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
   Future<void> _disconnectDevice(BluetoothDevice device) async {
     try {
       await device.disconnect();
-      
+
       setState(() {
         _connectedDevices.remove(device);
         if (_selectedDevice == device) {
@@ -152,7 +158,9 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Disconnected from ${device.platformName.isEmpty ? "Device" : device.platformName}'),
+          content: Text(
+            'Disconnected from ${device.platformName.isEmpty ? "Device" : device.platformName}',
+          ),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -169,12 +177,12 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
 
     try {
       _showLoadingDialog('Sending test print...');
-      
+
       // Use the new BluetoothReceiptService for test printing
       final success = await BluetoothReceiptService.printTestReceipt();
-      
+
       Navigator.of(context).pop(); // Close loading dialog
-      
+
       if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -229,19 +237,19 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
           children: [
             // Bluetooth Status Card
             _buildStatusCard(),
-            
+
             const SizedBox(height: 16),
-            
+
             // Connected Devices Section
             if (_connectedDevices.isNotEmpty) _buildConnectedDevicesSection(),
-            
+
             const SizedBox(height: 16),
-            
+
             // Available Devices Section
             _buildAvailableDevicesSection(),
-            
+
             const SizedBox(height: 20),
-            
+
             // Test Print Section
             if (_selectedDevice != null) _buildTestPrintSection(),
           ],
@@ -305,10 +313,7 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
               const SizedBox(height: 12),
               Text(
                 'Please turn on Bluetooth in your device settings to scan for and connect to printers.',
-                style: TextStyle(
-                  color: Colors.orange.shade700,
-                  fontSize: 12,
-                ),
+                style: TextStyle(color: Colors.orange.shade700, fontSize: 12),
               ),
             ],
           ],
@@ -330,7 +335,9 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        ..._connectedDevices.map((device) => _buildDeviceCard(device, isConnected: true)),
+        ..._connectedDevices.map(
+          (device) => _buildDeviceCard(device, isConnected: true),
+        ),
       ],
     );
   }
@@ -370,14 +377,17 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
             ),
           )
         else
-          ..._scanResults.where((device) => !_connectedDevices.contains(device))
+          ..._scanResults
+              .where((device) => !_connectedDevices.contains(device))
               .map((device) => _buildDeviceCard(device, isConnected: false)),
       ],
     );
   }
 
   Widget _buildDeviceCard(BluetoothDevice device, {required bool isConnected}) {
-    String deviceName = device.platformName.isNotEmpty ? device.platformName : 'Unknown Device';
+    String deviceName = device.platformName.isNotEmpty
+        ? device.platformName
+        : 'Unknown Device';
     return Card(
       color: isConnected ? Colors.green.shade50 : null,
       child: ListTile(
@@ -479,10 +489,7 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
                 const SizedBox(height: 8),
                 Text(
                   'This will send ESC/POS commands to print a test receipt.',
-                  style: TextStyle(
-                    color: Colors.grey.shade600,
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                   textAlign: TextAlign.center,
                 ),
               ],

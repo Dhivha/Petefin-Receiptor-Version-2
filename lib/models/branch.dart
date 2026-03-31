@@ -2,10 +2,7 @@ class Branch {
   final int branchId;
   final String branchName;
 
-  Branch({
-    required this.branchId,
-    required this.branchName,
-  });
+  Branch({required this.branchId, required this.branchName});
 
   factory Branch.fromJson(Map<String, dynamic> json) {
     return Branch(
@@ -15,10 +12,7 @@ class Branch {
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'BranchId': branchId,
-      'BranchName': branchName,
-    };
+    return {'BranchId': branchId, 'BranchName': branchName};
   }
 
   Map<String, dynamic> toMap() {

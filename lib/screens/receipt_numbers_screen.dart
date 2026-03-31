@@ -9,12 +9,13 @@ class ReceiptNumbersScreen extends StatefulWidget {
   State<ReceiptNumbersScreen> createState() => _ReceiptNumbersScreenState();
 }
 
-class _ReceiptNumbersScreenState extends State<ReceiptNumbersScreen> with TickerProviderStateMixin {
+class _ReceiptNumbersScreenState extends State<ReceiptNumbersScreen>
+    with TickerProviderStateMixin {
   final AuthService _authService = AuthService();
   final TextEditingController _searchController = TextEditingController();
-  
+
   late TabController _tabController;
-  
+
   List<ReceiptNumber> _allReceiptNumbers = [];
   List<ReceiptNumber> _filteredUnused = [];
   List<ReceiptNumber> _filteredUsed = [];
@@ -55,14 +56,14 @@ class _ReceiptNumbersScreenState extends State<ReceiptNumbersScreen> with Ticker
     try {
       final unusedNumbers = await _authService.getUnusedReceiptNumbers();
       final usedNumbers = await _authService.getUsedReceiptNumbers();
-      
+
       setState(() {
         _allReceiptNumbers = [...unusedNumbers, ...usedNumbers];
         _filteredUnused = unusedNumbers;
         _filteredUsed = usedNumbers;
         _isLoading = false;
       });
-      
+
       _performSearch();
     } catch (e) {
       setState(() {
@@ -105,10 +106,13 @@ class _ReceiptNumbersScreenState extends State<ReceiptNumbersScreen> with Ticker
   bool _matchesSearch(ReceiptNumber receiptNumber) {
     final query = _searchQuery.toLowerCase();
     return receiptNumber.receiptNum.toLowerCase().contains(query) ||
-           (receiptNumber.allocatedToFullName.toLowerCase().contains(query)) ||
-           (receiptNumber.usedByClientName?.toLowerCase().contains(query) ?? false) ||
-           (receiptNumber.usedByClientId?.toLowerCase().contains(query) ?? false) ||
-           (receiptNumber.allocatedToBranch?.toLowerCase().contains(query) ?? false);
+        (receiptNumber.allocatedToFullName.toLowerCase().contains(query)) ||
+        (receiptNumber.usedByClientName?.toLowerCase().contains(query) ??
+            false) ||
+        (receiptNumber.usedByClientId?.toLowerCase().contains(query) ??
+            false) ||
+        (receiptNumber.allocatedToBranch?.toLowerCase().contains(query) ??
+            false);
   }
 
   Future<void> _syncReceiptNumbers({bool forceRefresh = false}) async {
@@ -117,8 +121,10 @@ class _ReceiptNumbersScreenState extends State<ReceiptNumbersScreen> with Ticker
     });
 
     try {
-      final result = await _authService.syncReceiptNumbers(forceRefresh: forceRefresh);
-      
+      final result = await _authService.syncReceiptNumbers(
+        forceRefresh: forceRefresh,
+      );
+
       if (result.success) {
         _showSuccessSnackBar(
           '${result.message}\n${result.newReceiptNumbers} new numbers added\nTotal: ${result.totalReceiptNumbers}',
@@ -287,7 +293,7 @@ class _ReceiptNumbersScreenState extends State<ReceiptNumbersScreen> with Ticker
               ),
             ),
           ),
-          
+
           // Stats bar
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -296,22 +302,23 @@ class _ReceiptNumbersScreenState extends State<ReceiptNumbersScreen> with Ticker
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _buildStatItem('Total', _stats['total'] ?? 0, Colors.blue),
-                _buildStatItem('Available', _stats['unused'] ?? 0, Colors.green),
+                _buildStatItem(
+                  'Available',
+                  _stats['unused'] ?? 0,
+                  Colors.green,
+                ),
                 _buildStatItem('Used', _stats['used'] ?? 0, Colors.orange),
               ],
             ),
           ),
-          
+
           // Tab content
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : TabBarView(
                     controller: _tabController,
-                    children: [
-                      _buildUnusedTab(),
-                      _buildUsedTab(),
-                    ],
+                    children: [_buildUnusedTab(), _buildUsedTab()],
                   ),
           ),
         ],
@@ -333,10 +340,7 @@ class _ReceiptNumbersScreenState extends State<ReceiptNumbersScreen> with Ticker
         ),
         Text(
           label,
-          style: TextStyle(
-            fontSize: 12,
-            color: color.withOpacity(0.7),
-          ),
+          style: TextStyle(fontSize: 12, color: color.withOpacity(0.7)),
         ),
       ],
     );
@@ -348,10 +352,14 @@ class _ReceiptNumbersScreenState extends State<ReceiptNumbersScreen> with Ticker
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.inventory_2_outlined, size: 64, color: Colors.grey.shade400),
+            Icon(
+              Icons.inventory_2_outlined,
+              size: 64,
+              color: Colors.grey.shade400,
+            ),
             const SizedBox(height: 16),
             Text(
-              _searchQuery.isNotEmpty 
+              _searchQuery.isNotEmpty
                   ? 'No unused receipt numbers match your search'
                   : 'No unused receipt numbers available',
               style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
@@ -388,10 +396,14 @@ class _ReceiptNumbersScreenState extends State<ReceiptNumbersScreen> with Ticker
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.check_circle_outline, size: 64, color: Colors.grey.shade400),
+            Icon(
+              Icons.check_circle_outline,
+              size: 64,
+              color: Colors.grey.shade400,
+            ),
             const SizedBox(height: 16),
             Text(
-              _searchQuery.isNotEmpty 
+              _searchQuery.isNotEmpty
                   ? 'No used receipt numbers match your search'
                   : 'No receipt numbers have been used yet',
               style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
@@ -439,7 +451,7 @@ class _ReceiptNumbersScreenState extends State<ReceiptNumbersScreen> with Ticker
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                isUsed 
+                isUsed
                     ? 'Used by ${receiptNumber.usedByClientName ?? 'Unknown'}'
                     : 'Available for ${receiptNumber.allocatedToFullName}',
                 style: const TextStyle(fontSize: 14),
@@ -449,7 +461,7 @@ class _ReceiptNumbersScreenState extends State<ReceiptNumbersScreen> with Ticker
           ],
         ),
         subtitle: Text(
-          isUsed 
+          isUsed
               ? '${receiptNumber.formattedUsedAmount} • ${receiptNumber.formattedUsedDate}'
               : '${receiptNumber.allocatedToBranch ?? 'N/A'} • ${receiptNumber.formattedAllocatedDate}',
           style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
@@ -463,18 +475,30 @@ class _ReceiptNumbersScreenState extends State<ReceiptNumbersScreen> with Ticker
                 _buildDetailRow('Receipt ID', receiptNumber.id.toString()),
                 _buildDetailRow('Receipt Number', receiptNumber.receiptNum),
                 const Divider(),
-                
+
                 // Allocation Details
                 const Text(
                   'Allocation Details:',
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
                 const SizedBox(height: 8),
-                _buildDetailRow('Allocated To', receiptNumber.allocatedToFullName),
-                _buildDetailRow('Branch', receiptNumber.allocatedToBranch ?? 'N/A'),
-                _buildDetailRow('Branch Code', receiptNumber.branchAbbreviation ?? 'N/A'),
-                _buildDetailRow('Allocated At', receiptNumber.formattedAllocatedDate),
-                
+                _buildDetailRow(
+                  'Allocated To',
+                  receiptNumber.allocatedToFullName,
+                ),
+                _buildDetailRow(
+                  'Branch',
+                  receiptNumber.allocatedToBranch ?? 'N/A',
+                ),
+                _buildDetailRow(
+                  'Branch Code',
+                  receiptNumber.branchAbbreviation ?? 'N/A',
+                ),
+                _buildDetailRow(
+                  'Allocated At',
+                  receiptNumber.formattedAllocatedDate,
+                ),
+
                 if (isUsed) ...[
                   const Divider(),
                   const Text(
@@ -482,8 +506,14 @@ class _ReceiptNumbersScreenState extends State<ReceiptNumbersScreen> with Ticker
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                   const SizedBox(height: 8),
-                  _buildDetailRow('Used By Client', receiptNumber.usedByClientName ?? 'N/A'),
-                  _buildDetailRow('Client ID', receiptNumber.usedByClientId ?? 'N/A'),
+                  _buildDetailRow(
+                    'Used By Client',
+                    receiptNumber.usedByClientName ?? 'N/A',
+                  ),
+                  _buildDetailRow(
+                    'Client ID',
+                    receiptNumber.usedByClientId ?? 'N/A',
+                  ),
                   _buildDetailRow('Amount', receiptNumber.formattedUsedAmount),
                   _buildDetailRow('Currency', receiptNumber.currency ?? 'N/A'),
                   _buildDetailRow('Used At', receiptNumber.formattedUsedDate),
@@ -509,12 +539,7 @@ class _ReceiptNumbersScreenState extends State<ReceiptNumbersScreen> with Ticker
               style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
             ),
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontSize: 14),
-            ),
-          ),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 14))),
         ],
       ),
     );

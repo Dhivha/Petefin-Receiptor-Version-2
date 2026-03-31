@@ -18,14 +18,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _isLoading = true;
   String? _errorMessage;
   TabController? _tabController;
-  
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
     _loadReceipts();
   }
-  
+
   @override
   void dispose() {
     _tabController?.dispose();
@@ -110,7 +110,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         children: [
           // API Status Indicator
           _buildApiStatusBanner(),
-          
+
           // Main Content
           Expanded(
             child: _isLoading
@@ -119,9 +119,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     controller: _tabController,
                     children: [
                       _buildReceiptList(_receipts),
-                      _buildReceiptList(_getReceiptsByStatus(ReceiptStatus.pending)),
-                      _buildReceiptList(_getReceiptsByStatus(ReceiptStatus.approved)),
-                      _buildReceiptList(_getReceiptsByStatus(ReceiptStatus.processing)),
+                      _buildReceiptList(
+                        _getReceiptsByStatus(ReceiptStatus.pending),
+                      ),
+                      _buildReceiptList(
+                        _getReceiptsByStatus(ReceiptStatus.approved),
+                      ),
+                      _buildReceiptList(
+                        _getReceiptsByStatus(ReceiptStatus.processing),
+                      ),
                     ],
                   ),
           ),
@@ -139,8 +145,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: _errorMessage != null 
-          ? Colors.orange.withOpacity(0.1) 
+      color: _errorMessage != null
+          ? Colors.orange.withOpacity(0.1)
           : Colors.green.withOpacity(0.1),
       child: Row(
         children: [
@@ -152,12 +158,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              _errorMessage != null 
+              _errorMessage != null
                   ? 'Using demo data - API: ${_receiptService.getCurrentApiUrl()}'
                   : 'Connected to: ${_receiptService.getCurrentApiUrl()}',
               style: TextStyle(
                 fontSize: 12,
-                color: _errorMessage != null ? Colors.orange.shade700 : Colors.green.shade700,
+                color: _errorMessage != null
+                    ? Colors.orange.shade700
+                    : Colors.green.shade700,
               ),
             ),
           ),
@@ -177,26 +185,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.receipt_long,
-              size: 64,
-              color: Colors.grey.shade400,
-            ),
+            Icon(Icons.receipt_long, size: 64, color: Colors.grey.shade400),
             const SizedBox(height: 16),
             Text(
               'No receipts found',
-              style: TextStyle(
-                fontSize: 18,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
             ),
             const SizedBox(height: 8),
             Text(
               'Tap + to add your first receipt',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade500,
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
             ),
           ],
         ),
@@ -225,7 +223,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       context,
       MaterialPageRoute(builder: (context) => const AddReceiptScreen()),
     );
-    
+
     if (result == true) {
       _loadReceipts();
     }
@@ -238,7 +236,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         builder: (context) => ReceiptDetailScreen(receiptId: receipt.id),
       ),
     );
-    
+
     if (result == true) {
       _loadReceipts();
     }
@@ -267,7 +265,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       try {
         await _receiptService.deleteReceipt(receipt.id);
         _loadReceipts();
-        
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Receipt deleted successfully')),

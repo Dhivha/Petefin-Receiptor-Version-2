@@ -14,7 +14,7 @@ class ClientsScreen extends StatefulWidget {
 class _ClientsScreenState extends State<ClientsScreen> {
   final AuthService _authService = AuthService();
   final TextEditingController _searchController = TextEditingController();
-  
+
   List<Client> _allClients = [];
   List<Client> _filteredClients = [];
   bool _isLoading = false;
@@ -86,7 +86,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
 
     try {
       final result = await _authService.syncClientsForCurrentUser();
-      
+
       if (result.success) {
         await _loadClients();
         if (mounted) {
@@ -141,7 +141,12 @@ class _ClientsScreenState extends State<ClientsScreen> {
               _buildDetailRow('Client ID', client.clientId),
               _buildDetailRow('Branch', client.branch),
               _buildDetailRow('WhatsApp', client.whatsAppContact),
-              _buildDetailRow('Email', client.emailAddress.isEmpty ? 'Not provided' : client.emailAddress),
+              _buildDetailRow(
+                'Email',
+                client.emailAddress.isEmpty
+                    ? 'Not provided'
+                    : client.emailAddress,
+              ),
               _buildDetailRow('National ID', client.nationalIdNumber),
               _buildDetailRow('Gender', client.gender),
               _buildDetailRow('Next of Kin', client.nextOfKinName),
@@ -183,18 +188,10 @@ class _ClientsScreenState extends State<ClientsScreen> {
             width: 100,
             child: Text(
               '$label:',
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
             ),
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontSize: 14),
-            ),
-          ),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 14))),
         ],
       ),
     );
@@ -219,20 +216,16 @@ class _ClientsScreenState extends State<ClientsScreen> {
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Could not open WhatsApp'),
-            ),
+            const SnackBar(content: Text('Could not open WhatsApp')),
           );
         }
       }
     } catch (e) {
       print('Error opening WhatsApp: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Error opening WhatsApp'),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Error opening WhatsApp')));
       }
     }
   }
@@ -306,26 +299,24 @@ class _ClientsScreenState extends State<ClientsScreen> {
               ],
             ),
           ),
-          
+
           // Client List
           Expanded(
             child: _isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(),
-                  )
+                ? const Center(child: CircularProgressIndicator())
                 : _filteredClients.isEmpty
-                    ? _buildEmptyState()
-                    : RefreshIndicator(
-                        onRefresh: _refreshClients,
-                        child: ListView.builder(
-                          padding: const EdgeInsets.all(8),
-                          itemCount: _filteredClients.length,
-                          itemBuilder: (context, index) {
-                            final client = _filteredClients[index];
-                            return _buildClientCard(client);
-                          },
-                        ),
-                      ),
+                ? _buildEmptyState()
+                : RefreshIndicator(
+                    onRefresh: _refreshClients,
+                    child: ListView.builder(
+                      padding: const EdgeInsets.all(8),
+                      itemCount: _filteredClients.length,
+                      itemBuilder: (context, index) {
+                        final client = _filteredClients[index];
+                        return _buildClientCard(client);
+                      },
+                    ),
+                  ),
           ),
         ],
       ),
@@ -344,11 +335,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.search_off,
-              size: 80,
-              color: Colors.grey.shade400,
-            ),
+            Icon(Icons.search_off, size: 80, color: Colors.grey.shade400),
             const SizedBox(height: 16),
             Text(
               'No clients found',
@@ -361,10 +348,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
             const SizedBox(height: 8),
             Text(
               'Try adjusting your search terms',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
             ),
           ],
         ),
@@ -374,11 +358,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.people_outline,
-              size: 80,
-              color: Colors.grey.shade400,
-            ),
+            Icon(Icons.people_outline, size: 80, color: Colors.grey.shade400),
             const SizedBox(height: 16),
             Text(
               'No clients available',
@@ -391,10 +371,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
             const SizedBox(height: 8),
             Text(
               'Pull down to refresh or sync clients',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
@@ -421,7 +398,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
         leading: CircleAvatar(
           backgroundColor: Colors.blue.shade100,
           child: Text(
-            client.firstName.isNotEmpty 
+            client.firstName.isNotEmpty
                 ? client.firstName[0].toUpperCase()
                 : 'C',
             style: TextStyle(
@@ -432,10 +409,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
         ),
         title: Text(
           client.fullName,
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 16,
-          ),
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -448,10 +422,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
                 Expanded(
                   child: Text(
                     client.clientId,
-                    style: TextStyle(
-                      color: Colors.grey.shade700,
-                      fontSize: 13,
-                    ),
+                    style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
                   ),
                 ),
               ],
@@ -464,10 +435,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
                 Expanded(
                   child: Text(
                     client.branch,
-                    style: TextStyle(
-                      color: Colors.grey.shade700,
-                      fontSize: 13,
-                    ),
+                    style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
                   ),
                 ),
               ],
@@ -480,10 +448,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
                 Expanded(
                   child: Text(
                     client.whatsAppContact,
-                    style: TextStyle(
-                      color: Colors.grey.shade700,
-                      fontSize: 13,
-                    ),
+                    style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
                   ),
                 ),
               ],
@@ -511,7 +476,10 @@ class _ClientsScreenState extends State<ClientsScreen> {
             const PopupMenuItem<String>(
               value: 'disbursements',
               child: ListTile(
-                leading: Icon(Icons.account_balance_wallet, color: Colors.green),
+                leading: Icon(
+                  Icons.account_balance_wallet,
+                  color: Colors.green,
+                ),
                 title: Text('View Disbursements'),
                 contentPadding: EdgeInsets.zero,
                 dense: true,

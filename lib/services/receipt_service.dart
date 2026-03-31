@@ -9,7 +9,7 @@ class ReceiptService {
   Future<List<Receipt>> getReceipts() async {
     try {
       final response = await _apiService.get('/api/receipts');
-      
+
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         return data.map((item) => Receipt.fromJson(item)).toList();
@@ -26,7 +26,7 @@ class ReceiptService {
   Future<Receipt?> getReceiptById(String id) async {
     try {
       final response = await _apiService.get('/api/receipts/$id');
-      
+
       if (response.statusCode == 200) {
         return Receipt.fromJson(json.decode(response.body));
       } else if (response.statusCode == 404) {
@@ -48,7 +48,7 @@ class ReceiptService {
         body: json.encode(receipt.toJson()),
         headers: {'Content-Type': 'application/json'},
       );
-      
+
       if (response.statusCode == 200 || response.statusCode == 201) {
         return Receipt.fromJson(json.decode(response.body));
       } else {
@@ -68,7 +68,7 @@ class ReceiptService {
         body: json.encode(receipt.toJson()),
         headers: {'Content-Type': 'application/json'},
       );
-      
+
       if (response.statusCode == 200) {
         return Receipt.fromJson(json.decode(response.body));
       } else {
@@ -84,7 +84,7 @@ class ReceiptService {
   Future<bool> deleteReceipt(String id) async {
     try {
       final response = await _apiService.get('/api/receipts/$id/delete');
-      
+
       return response.statusCode == 200 || response.statusCode == 204;
     } catch (e) {
       print('Error deleting receipt: $e');
@@ -101,7 +101,7 @@ class ReceiptService {
         body: json.encode({'imagePath': imagePath}),
         headers: {'Content-Type': 'application/json'},
       );
-      
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         return data['imageUrl'];
@@ -117,13 +117,17 @@ class ReceiptService {
   /// Get receipts by status
   Future<List<Receipt>> getReceiptsByStatus(ReceiptStatus status) async {
     try {
-      final response = await _apiService.get('/api/receipts?status=${status.name}');
-      
+      final response = await _apiService.get(
+        '/api/receipts?status=${status.name}',
+      );
+
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         return data.map((item) => Receipt.fromJson(item)).toList();
       } else {
-        throw Exception('Failed to load receipts by status: ${response.statusCode}');
+        throw Exception(
+          'Failed to load receipts by status: ${response.statusCode}',
+        );
       }
     } catch (e) {
       print('Error getting receipts by status: $e');
@@ -134,8 +138,10 @@ class ReceiptService {
   /// Search receipts by title or description
   Future<List<Receipt>> searchReceipts(String query) async {
     try {
-      final response = await _apiService.get('/api/receipts/search?q=${Uri.encodeComponent(query)}');
-      
+      final response = await _apiService.get(
+        '/api/receipts/search?q=${Uri.encodeComponent(query)}',
+      );
+
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         return data.map((item) => Receipt.fromJson(item)).toList();

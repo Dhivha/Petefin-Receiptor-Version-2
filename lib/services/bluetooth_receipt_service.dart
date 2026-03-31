@@ -86,7 +86,7 @@ class BluetoothReceiptService {
     commands.addAll([27, 97, 1]); // ESC a (Center align)
     commands.addAll('${data['header']}\n'.codeUnits);
     commands.addAll('\n'.codeUnits); // Extra spacing
-    
+
     // Subheader
     commands.addAll('${data['subheader']}\n'.codeUnits);
     commands.addAll([27, 69, 0]); // ESC E (Bold off)
@@ -135,7 +135,7 @@ class BluetoothReceiptService {
     commands.addAll('\n'.codeUnits);
     commands.addAll('Currency: ${data['currency']}\n'.codeUnits);
     commands.addAll('\n'.codeUnits);
-    
+
     // Amount - center aligned and bold for emphasis
     commands.addAll([27, 69, 1]); // Bold on
     commands.addAll([27, 97, 1]); // Center align
@@ -145,11 +145,15 @@ class BluetoothReceiptService {
     commands.addAll('\n'.codeUnits);
 
     // Only show payment/disbursement details for repayments, not admin/FCB
-    if (data['paymentNumber'] != null && !data['subheader'].contains('ADMIN') && !data['subheader'].contains('FCB')) {
+    if (data['paymentNumber'] != null &&
+        !data['subheader'].contains('ADMIN') &&
+        !data['subheader'].contains('FCB')) {
       commands.addAll('Payment #: ${data['paymentNumber']}\n'.codeUnits);
       commands.addAll('\n'.codeUnits);
     }
-    if (data['disbursementId'] != null && !data['subheader'].contains('ADMIN') && !data['subheader'].contains('FCB')) {
+    if (data['disbursementId'] != null &&
+        !data['subheader'].contains('ADMIN') &&
+        !data['subheader'].contains('FCB')) {
       commands.addAll('Disbursement ID: ${data['disbursementId']}\n'.codeUnits);
       commands.addAll('\n'.codeUnits);
     }
@@ -163,7 +167,9 @@ class BluetoothReceiptService {
     commands.addAll('\n'.codeUnits);
     commands.addAll('Keep this receipt for\n'.codeUnits);
     commands.addAll('your records.\n'.codeUnits);
-    commands.addAll('\n\n\n\n\n'.codeUnits); // Extra spacing at end for easy tear-off
+    commands.addAll(
+      '\n\n\n\n\n'.codeUnits,
+    ); // Extra spacing at end for easy tear-off
 
     // Cut paper
     commands.addAll([29, 86, 65, 0]); // GS V A (Full cut)
@@ -329,7 +335,8 @@ class BluetoothReceiptService {
       'subheader': 'ADMIN FEE RECEIPT',
       'receiptNumber': adminFee.receiptNumber,
       'date': '${now.day}/${now.month}/${now.year}',
-      'time': '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
+      'time':
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
       'clientName': adminFee.fullName,
       'firstName': adminFee.firstName,
       'lastName': adminFee.lastName,
@@ -419,7 +426,8 @@ class BluetoothReceiptService {
       'subheader': 'FCB RECEIPT',
       'receiptNumber': fcbReceipt.receiptNumber,
       'date': '${now.day}/${now.month}/${now.year}',
-      'time': '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
+      'time':
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
       'clientName': fcbReceipt.fullName,
       'firstName': fcbReceipt.firstName,
       'lastName': fcbReceipt.lastName,
@@ -444,7 +452,7 @@ class BluetoothReceiptService {
     commands.addAll([27, 97, 1]); // ESC a (Center align)
     commands.addAll('${data['header']}\n'.codeUnits);
     commands.addAll('\n'.codeUnits); // Extra spacing
-    
+
     // Subheader
     commands.addAll('${data['subheader']}\n'.codeUnits);
     commands.addAll([27, 69, 0]); // ESC E (Bold off)

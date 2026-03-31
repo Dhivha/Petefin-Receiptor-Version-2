@@ -46,8 +46,8 @@ class ReceiptNumber {
       allocatedToLastName: json['AllocatedToLastName'],
       allocatedToBranch: json['AllocatedToBranch'],
       branchAbbreviation: json['BranchAbbreviation'],
-      allocatedAt: json['AllocatedAt'] != null 
-          ? DateTime.tryParse(json['AllocatedAt']) 
+      allocatedAt: json['AllocatedAt'] != null
+          ? DateTime.tryParse(json['AllocatedAt'])
           : null,
       createdAt: DateTime.now(),
     );
@@ -145,7 +145,7 @@ class ReceiptNumber {
   /// Get formatted amount if used
   String get formattedUsedAmount {
     if (usedAmount == null || currency == null) return 'N/A';
-    
+
     final currencyFormat = NumberFormat.currency(
       symbol: currency == 'USD' ? '\$' : 'ZWG',
       decimalDigits: 2,

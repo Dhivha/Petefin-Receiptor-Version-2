@@ -13,11 +13,11 @@ class ClientDetailScreen extends StatefulWidget {
   State<ClientDetailScreen> createState() => _ClientDetailScreenState();
 }
 
-class _ClientDetailScreenState extends State<ClientDetailScreen> 
+class _ClientDetailScreenState extends State<ClientDetailScreen>
     with TickerProviderStateMixin {
   final AuthService _authService = AuthService();
   late TabController _tabController;
-  
+
   List<Disbursement> _disbursements = [];
   bool _isLoadingDisbursements = false;
   String? _errorMessage;
@@ -43,8 +43,10 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
 
     try {
       // Try to load from API first, then fall back to local data
-      final syncResult = await _authService.syncDisbursementsForClient(widget.client.clientId);
-      
+      final syncResult = await _authService.syncDisbursementsForClient(
+        widget.client.clientId,
+      );
+
       if (syncResult.success && syncResult.disbursements != null) {
         setState(() {
           _disbursements = syncResult.disbursements!;
@@ -52,7 +54,9 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
         });
       } else {
         // Fallback to local data
-        final localDisbursements = await _authService.getClientDisbursements(widget.client.clientId);
+        final localDisbursements = await _authService.getClientDisbursements(
+          widget.client.clientId,
+        );
         setState(() {
           _disbursements = localDisbursements;
           _isLoadingDisbursements = false;
@@ -61,7 +65,9 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
       }
     } catch (e) {
       // Load from local database as fallback
-      final localDisbursements = await _authService.getClientDisbursements(widget.client.clientId);
+      final localDisbursements = await _authService.getClientDisbursements(
+        widget.client.clientId,
+      );
       setState(() {
         _disbursements = localDisbursements;
         _isLoadingDisbursements = false;
@@ -79,7 +85,10 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
           controller: _tabController,
           tabs: const [
             Tab(text: 'Details', icon: Icon(Icons.person)),
-            Tab(text: 'Disbursements', icon: Icon(Icons.account_balance_wallet)),
+            Tab(
+              text: 'Disbursements',
+              icon: Icon(Icons.account_balance_wallet),
+            ),
             Tab(text: 'History', icon: Icon(Icons.history)),
           ],
         ),
@@ -116,12 +125,21 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
                   _buildDetailRow('Full Name', widget.client.fullName),
                   _buildDetailRow('WhatsApp', widget.client.whatsAppContact),
                   _buildDetailRow('Email', widget.client.emailAddress),
-                  _buildDetailRow('National ID', widget.client.nationalIdNumber),
+                  _buildDetailRow(
+                    'National ID',
+                    widget.client.nationalIdNumber,
+                  ),
                   _buildDetailRow('Branch', widget.client.branch),
                   _buildDetailRow('Gender', widget.client.gender),
                   _buildDetailRow('Next of Kin', widget.client.nextOfKinName),
-                  _buildDetailRow('NOK Contact', widget.client.nextOfKinContact),
-                  _buildDetailRow('Relationship', widget.client.relationshipWithNOK),
+                  _buildDetailRow(
+                    'NOK Contact',
+                    widget.client.nextOfKinContact,
+                  ),
+                  _buildDetailRow(
+                    'Relationship',
+                    widget.client.relationshipWithNOK,
+                  ),
                 ],
               ),
             ),
@@ -149,16 +167,16 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
             const SizedBox(height: 16),
             Text(
               'No disbursements found',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                color: Colors.grey[600],
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(color: Colors.grey[600]),
             ),
             const SizedBox(height: 8),
             Text(
               'This client has no loan disbursements yet.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.grey[600],
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
             ),
             const SizedBox(height: 24),
             ElevatedButton.icon(
@@ -216,7 +234,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
   Widget _buildDisbursementCard(Disbursement disbursement) {
     final currencyFormat = NumberFormat.currency(symbol: '\$');
     final dateFormat = DateFormat('dd MMM yyyy');
-    
+
     return Card(
       margin: const EdgeInsets.only(bottom: 16.0),
       elevation: 2,
@@ -234,10 +252,11 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
                   children: [
                     Text(
                       currencyFormat.format(disbursement.amount),
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green[700],
-                      ),
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green[700],
+                          ),
                     ),
                     if (disbursement.productName != null)
                       Text(
@@ -251,9 +270,9 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
                 _buildPaymentStatusChip(disbursement),
               ],
             ),
-            
+
             const SizedBox(height: 16),
-            
+
             // Key details
             Row(
               children: [
@@ -273,9 +292,9 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
                 ),
               ],
             ),
-            
+
             const SizedBox(height: 12),
-            
+
             Row(
               children: [
                 Expanded(
@@ -294,50 +313,49 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
                 ),
               ],
             ),
-            
-            if (disbursement.nextPaymentDate != null)
-              ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: disbursement.hasOverduePayments 
-                        ? Colors.red[50] 
-                        : Colors.blue[50],
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: disbursement.hasOverduePayments 
-                          ? Colors.red[200]! 
-                          : Colors.blue[200]!,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        disbursement.hasOverduePayments 
-                            ? Icons.warning 
-                            : Icons.schedule,
-                        color: disbursement.hasOverduePayments 
-                            ? Colors.red[700] 
-                            : Colors.blue[700],
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Next Payment: ${dateFormat.format(disbursement.nextPaymentDate!)}',
-                        style: TextStyle(
-                          color: disbursement.hasOverduePayments 
-                              ? Colors.red[700] 
-                              : Colors.blue[700],
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
+
+            if (disbursement.nextPaymentDate != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: disbursement.hasOverduePayments
+                      ? Colors.red[50]
+                      : Colors.blue[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: disbursement.hasOverduePayments
+                        ? Colors.red[200]!
+                        : Colors.blue[200]!,
                   ),
                 ),
-              ],
-            
+                child: Row(
+                  children: [
+                    Icon(
+                      disbursement.hasOverduePayments
+                          ? Icons.warning
+                          : Icons.schedule,
+                      color: disbursement.hasOverduePayments
+                          ? Colors.red[700]
+                          : Colors.blue[700],
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Next Payment: ${dateFormat.format(disbursement.nextPaymentDate!)}',
+                      style: TextStyle(
+                        color: disbursement.hasOverduePayments
+                            ? Colors.red[700]
+                            : Colors.blue[700],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
             const SizedBox(height: 16),
-            
+
             // Action buttons
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
@@ -349,7 +367,8 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton.icon(
-                  onPressed: () => _showDisbursementDetails(context, disbursement),
+                  onPressed: () =>
+                      _showDisbursementDetails(context, disbursement),
                   icon: const Icon(Icons.info),
                   label: const Text('View Details'),
                 ),
@@ -364,10 +383,10 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
   Widget _buildPaymentStatusChip(Disbursement disbursement) {
     final hasOverdue = disbursement.hasOverduePayments;
     final nextPayment = disbursement.nextDuePayment;
-    
+
     String status;
     MaterialColor color;
-    
+
     if (hasOverdue) {
       status = 'Overdue';
       color = Colors.red;
@@ -378,14 +397,11 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
       status = 'Completed';
       color = Colors.blue;
     }
-    
+
     return Chip(
       label: Text(
         status,
-        style: TextStyle(
-          color: color[700],
-          fontWeight: FontWeight.w500,
-        ),
+        style: TextStyle(color: color[700], fontWeight: FontWeight.w500),
       ),
       backgroundColor: color[100],
       side: BorderSide(color: color[300]!),
@@ -402,15 +418,15 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
           children: [
             Text(
               title,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Colors.grey[600],
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
             ),
             Text(
               value,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w500,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
             ),
           ],
         ),
@@ -435,10 +451,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
             ),
           ),
           Expanded(
-            child: Text(
-              value,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
+            child: Text(value, style: Theme.of(context).textTheme.bodyMedium),
           ),
         ],
       ),
@@ -458,10 +471,14 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
     );
   }
 
-  void _showDisbursementDetails(BuildContext context, Disbursement disbursement) {
+  void _showDisbursementDetails(
+    BuildContext context,
+    Disbursement disbursement,
+  ) {
     showDialog(
       context: context,
-      builder: (context) => DisbursementDetailsDialog(disbursement: disbursement),
+      builder: (context) =>
+          DisbursementDetailsDialog(disbursement: disbursement),
     );
   }
 }
@@ -508,8 +525,9 @@ class PaymentScheduleDialog extends StatelessWidget {
                 itemCount: payments.length,
                 itemBuilder: (context, index) {
                   final paymentDate = payments[index];
-                  final isPaid = false; // You'd need to track this from a separate payment tracking system
-                  
+                  final isPaid =
+                      false; // You'd need to track this from a separate payment tracking system
+
                   return Card(
                     color: isPaid ? Colors.green[50] : null,
                     child: ListTile(
@@ -580,25 +598,49 @@ class DisbursementDetailsDialog extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildDetailCard('Loan Information', [
-                      _buildDetailRow('Principal Amount', currencyFormat.format(disbursement.amount)),
-                      _buildDetailRow('Interest Rate', '${disbursement.interest}%'),
-                      _buildDetailRow('Total Amount', currencyFormat.format(disbursement.totalAmount)),
-                      _buildDetailRow('Weekly Payment', currencyFormat.format(disbursement.weeklyPayment)),
+                      _buildDetailRow(
+                        'Principal Amount',
+                        currencyFormat.format(disbursement.amount),
+                      ),
+                      _buildDetailRow(
+                        'Interest Rate',
+                        '${disbursement.interest}%',
+                      ),
+                      _buildDetailRow(
+                        'Total Amount',
+                        currencyFormat.format(disbursement.totalAmount),
+                      ),
+                      _buildDetailRow(
+                        'Weekly Payment',
+                        currencyFormat.format(disbursement.weeklyPayment),
+                      ),
                       _buildDetailRow('Tenure', '${disbursement.tenure} weeks'),
-                      _buildDetailRow('Admin Fees', currencyFormat.format(disbursement.adminFees)),
+                      _buildDetailRow(
+                        'Admin Fees',
+                        currencyFormat.format(disbursement.adminFees),
+                      ),
                     ]),
-                    
+
                     const SizedBox(height: 16),
-                    
+
                     _buildDetailCard('Disbursement Information', [
-                      _buildDetailRow('Date of Disbursement', dateFormat.format(disbursement.dateOfDisbursement)),
+                      _buildDetailRow(
+                        'Date of Disbursement',
+                        dateFormat.format(disbursement.dateOfDisbursement),
+                      ),
                       _buildDetailRow('Branch', disbursement.branch),
                       _buildDetailRow('FCB', disbursement.fcb.toString()),
-                      _buildDetailRow('Grace Period', '${disbursement.gracePeriodDays} days'),
+                      _buildDetailRow(
+                        'Grace Period',
+                        '${disbursement.gracePeriodDays} days',
+                      ),
                       if (disbursement.productName != null)
                         _buildDetailRow('Product', disbursement.productName!),
                       if (disbursement.description != null)
-                        _buildDetailRow('Description', disbursement.description!),
+                        _buildDetailRow(
+                          'Description',
+                          disbursement.description!,
+                        ),
                     ]),
                   ],
                 ),
@@ -619,10 +661,7 @@ class DisbursementDetailsDialog extends StatelessWidget {
           children: [
             Text(
               title,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             ...children,
@@ -648,9 +687,7 @@ class DisbursementDetailsDialog extends StatelessWidget {
               ),
             ),
           ),
-          Expanded(
-            child: Text(value),
-          ),
+          Expanded(child: Text(value)),
         ],
       ),
     );

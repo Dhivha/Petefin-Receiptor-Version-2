@@ -241,15 +241,16 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
                     );
 
                     try {
-                      final result = await _authService.createRepaymentWithReceiptNumber(
-                        disbursementId: disbursement.id,
-                        clientId: widget.client.clientId,
-                        amount: amount,
-                        dateOfPayment: selectedDate,
-                        paymentNumber: paymentNumber,
-                        currency: widget.currency,
-                        clientName: widget.client.fullName,
-                      );
+                      final result = await _authService
+                          .createRepaymentWithReceiptNumber(
+                            disbursementId: disbursement.id,
+                            clientId: widget.client.clientId,
+                            amount: amount,
+                            dateOfPayment: selectedDate,
+                            paymentNumber: paymentNumber,
+                            currency: widget.currency,
+                            clientName: widget.client.fullName,
+                          );
 
                       // Close loading dialog
                       if (mounted) Navigator.of(context).pop();
@@ -262,7 +263,7 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
                             clientName: widget.client.fullName,
                           );
                         }
-                        
+
                         // Show success dialog with receipt number
                         _showSuccessDialog(result.receiptNumber!);
                         // Reload data to show new repayment
@@ -488,9 +489,7 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
                                     Icons.account_balance_wallet,
                                     color: Colors.blue,
                                   ),
-                                  title: Text(
-                                    'ID: ${disbursement.id}',
-                                  ),
+                                  title: Text('ID: ${disbursement.id}'),
                                   subtitle: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,

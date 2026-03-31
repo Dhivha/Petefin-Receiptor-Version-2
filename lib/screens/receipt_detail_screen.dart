@@ -91,8 +91,8 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _receipt == null
-              ? _buildErrorState()
-              : _buildReceiptDetails(),
+          ? _buildErrorState()
+          : _buildReceiptDetails(),
     );
   }
 
@@ -101,34 +101,21 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.error_outline,
-            size: 64,
-            color: Colors.grey.shade400,
-          ),
+          Icon(Icons.error_outline, size: 64, color: Colors.grey.shade400),
           const SizedBox(height: 16),
           Text(
             'Receipt not found',
-            style: TextStyle(
-              fontSize: 18,
-              color: Colors.grey.shade600,
-            ),
+            style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 8),
           if (_errorMessage != null)
             Text(
               _errorMessage!,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade500,
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
               textAlign: TextAlign.center,
             ),
           const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: _loadReceipt,
-            child: const Text('Retry'),
-          ),
+          ElevatedButton(onPressed: _loadReceipt, child: const Text('Retry')),
         ],
       ),
     );
@@ -136,7 +123,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
 
   Widget _buildReceiptDetails() {
     final receipt = _receipt!;
-    
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -201,7 +188,8 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                     child: Image.network(
                       receipt.imageUrl!,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => _buildImagePlaceholder(),
+                      errorBuilder: (context, error, stackTrace) =>
+                          _buildImagePlaceholder(),
                     ),
                   )
                 : _buildImagePlaceholder(),
@@ -212,9 +200,21 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
           // Receipt Details
           _buildDetailCard('Receipt Information', [
             _buildDetailRow('Title', receipt.title, Icons.title),
-            _buildDetailRow('Amount', '\$${receipt.amount.toStringAsFixed(2)}', Icons.attach_money),
-            _buildDetailRow('Category', receipt.category ?? 'Uncategorized', Icons.category),
-            _buildDetailRow('Date', _formatDate(receipt.createdAt), Icons.calendar_today),
+            _buildDetailRow(
+              'Amount',
+              '\$${receipt.amount.toStringAsFixed(2)}',
+              Icons.attach_money,
+            ),
+            _buildDetailRow(
+              'Category',
+              receipt.category ?? 'Uncategorized',
+              Icons.category,
+            ),
+            _buildDetailRow(
+              'Date',
+              _formatDate(receipt.createdAt),
+              Icons.calendar_today,
+            ),
           ]),
 
           const SizedBox(height: 16),
@@ -268,18 +268,11 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(
-          Icons.image,
-          size: 48,
-          color: Colors.grey.shade400,
-        ),
+        Icon(Icons.image, size: 48, color: Colors.grey.shade400),
         const SizedBox(height: 8),
         Text(
           'No receipt image',
-          style: TextStyle(
-            color: Colors.grey.shade600,
-            fontSize: 14,
-          ),
+          style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
         ),
       ],
     );
@@ -295,10 +288,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
             padding: const EdgeInsets.all(16),
             child: Text(
               title,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ),
           const Divider(height: 1),
@@ -326,10 +316,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
           const Spacer(),
           Text(
             value,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-            ),
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
           ),
         ],
       ),
@@ -427,7 +414,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
     try {
       final updatedReceipt = _receipt!.copyWith(status: newStatus);
       await _receiptService.updateReceipt(updatedReceipt);
-      
+
       setState(() {
         _receipt = updatedReceipt;
       });
@@ -435,7 +422,9 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Receipt ${newStatus.displayName.toLowerCase()} successfully'),
+            content: Text(
+              'Receipt ${newStatus.displayName.toLowerCase()} successfully',
+            ),
             backgroundColor: _getStatusColor(newStatus),
           ),
         );

@@ -93,12 +93,7 @@ class Receipt {
   int get hashCode => id.hashCode;
 }
 
-enum ReceiptStatus {
-  pending,
-  approved,
-  rejected,
-  processing,
-}
+enum ReceiptStatus { pending, approved, rejected, processing }
 
 extension ReceiptStatusExtension on ReceiptStatus {
   String get displayName {

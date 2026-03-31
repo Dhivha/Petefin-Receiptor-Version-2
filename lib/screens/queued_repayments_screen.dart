@@ -10,7 +10,8 @@ class QueuedRepaymentsScreen extends StatefulWidget {
   State<QueuedRepaymentsScreen> createState() => _QueuedRepaymentsScreenState();
 }
 
-class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with TickerProviderStateMixin {
+class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen>
+    with TickerProviderStateMixin {
   List<Repayment> _unsyncedRepayments = [];
   List<Repayment> _syncedRepayments = [];
   List<CancelledRepayment> _cancelledRepayments = [];
@@ -36,26 +37,26 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
 
   Future<void> _loadAllRepayments() async {
     setState(() => _isLoading = true);
-    
+
     try {
       final authService = AuthService();
-      
+
       // Load queued and synced repayments
       final unsyncedRepayments = await authService.getUnsyncedRepayments();
       final syncedRepayments = await authService.getSyncedRepayments();
-      
+
       setState(() {
         _unsyncedRepayments = unsyncedRepayments;
         _syncedRepayments = syncedRepayments;
       });
-      
+
       // Load cancelled repayments
       await _loadCancelledRepayments();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading repayments: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error loading repayments: $e')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -76,19 +77,19 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
 
   Future<void> _manualSync() async {
     if (_isSyncing) return;
-    
+
     setState(() => _isSyncing = true);
-    
+
     try {
       final authService = AuthService();
       final result = await authService.syncUnyncedRepayments();
-      
+
       if (result.success) {
         await _loadAllRepayments();
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(result.message)),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(result.message)));
         }
       } else {
         if (mounted) {
@@ -116,7 +117,7 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
 
   Future<void> _showCancelDialog(Repayment repayment) async {
     _reasonController.clear();
-    
+
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -149,14 +150,19 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
             onPressed: () {
               if (_reasonController.text.trim().isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Please enter a cancellation reason')),
+                  const SnackBar(
+                    content: Text('Please enter a cancellation reason'),
+                  ),
                 );
                 return;
               }
               Navigator.pop(context, true);
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Cancel Receipt', style: TextStyle(color: Colors.white)),
+            child: const Text(
+              'Cancel Receipt',
+              style: TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -169,14 +175,14 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
 
   Future<void> _cancelRepayment(Repayment repayment, String reason) async {
     setState(() => _isCancelling = true);
-    
+
     try {
       final authService = AuthService();
       final result = await authService.cancelRepayment(
         repayment: repayment,
         reason: reason,
       );
-      
+
       if (result.success) {
         await _loadAllRepayments(); // Refresh all data
         if (mounted) {
@@ -213,7 +219,10 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
     }
   }
 
-  Widget _buildRepaymentCard(Repayment repayment, {bool showCancelButton = false}) {
+  Widget _buildRepaymentCard(
+    Repayment repayment, {
+    bool showCancelButton = false,
+  }) {
     final isUSD = repayment.currency == 'USD';
     final isPending = !repayment.isSynced;
 
@@ -283,10 +292,17 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       ElevatedButton.icon(
-                        onPressed: _isCancelling ? null : () => _showCancelDialog(repayment),
+                        onPressed: _isCancelling
+                            ? null
+                            : () => _showCancelDialog(repayment),
                         icon: const Icon(Icons.cancel, color: Colors.white),
-                        label: const Text('Cancel Receipt', style: TextStyle(color: Colors.white)),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                        label: const Text(
+                          'Cancel Receipt',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                        ),
                       ),
                     ],
                   ),
@@ -305,11 +321,7 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: ExpansionTile(
-        leading: const Icon(
-          Icons.cancel,
-          color: Colors.red,
-          size: 30,
-        ),
+        leading: const Icon(Icons.cancel, color: Colors.red, size: 30),
         title: Text(
           cancelled.receiptNumber,
           style: const TextStyle(fontWeight: FontWeight.bold),
@@ -328,7 +340,10 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
             Text('Cancelled: ${cancelled.formattedCancellationDate}'),
             Text(
               'Reason: ${cancelled.reason}',
-              style: const TextStyle(color: Colors.red, fontStyle: FontStyle.italic),
+              style: const TextStyle(
+                color: Colors.red,
+                fontStyle: FontStyle.italic,
+              ),
             ),
           ],
         ),
@@ -343,10 +358,16 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
                 _buildDetailRow('Client ID', cancelled.clientId),
                 _buildDetailRow('Amount', cancelled.formattedAmount),
                 _buildDetailRow('Currency', cancelled.currency),
-                _buildDetailRow('Original Payment Date', cancelled.formattedPaymentDate),
+                _buildDetailRow(
+                  'Original Payment Date',
+                  cancelled.formattedPaymentDate,
+                ),
                 _buildDetailRow('Cancellation Reason', cancelled.reason),
                 _buildDetailRow('Cancelled By', cancelled.cancelledBy),
-                _buildDetailRow('Cancelled At', cancelled.formattedCancellationDate),
+                _buildDetailRow(
+                  'Cancelled At',
+                  cancelled.formattedCancellationDate,
+                ),
                 _buildDetailRow('Branch', cancelled.branch),
                 if (cancelled.whatsAppContact != null)
                   _buildDetailRow('WhatsApp', cancelled.whatsAppContact!),
@@ -371,12 +392,7 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
               style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
             ),
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontSize: 14),
-            ),
-          ),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 14))),
         ],
       ),
     );
@@ -403,7 +419,7 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
               icon: const Icon(Icons.cloud_done),
             ),
             Tab(
-              text: 'Cancelled (${_cancelledRepayments.length})',  
+              text: 'Cancelled (${_cancelledRepayments.length})',
               icon: const Icon(Icons.cancel),
             ),
           ],
@@ -468,7 +484,10 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
                   children: [
                     Text(
                       '${_unsyncedRepayments.length} Pending Sync',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     const Text('Repayments waiting to be synchronized'),
                   ],
@@ -477,7 +496,7 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
             ],
           ),
         ),
-        
+
         // Repayments List
         Expanded(
           child: _unsyncedRepayments.isEmpty
@@ -487,14 +506,20 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
                     children: [
                       Icon(Icons.cloud_queue, size: 64, color: Colors.grey),
                       SizedBox(height: 16),
-                      Text('No pending repayments', style: TextStyle(fontSize: 18, color: Colors.grey)),
+                      Text(
+                        'No pending repayments',
+                        style: TextStyle(fontSize: 18, color: Colors.grey),
+                      ),
                     ],
                   ),
                 )
               : ListView.builder(
                   itemCount: _unsyncedRepayments.length,
                   itemBuilder: (context, index) {
-                    return _buildRepaymentCard(_unsyncedRepayments[index], showCancelButton: true);
+                    return _buildRepaymentCard(
+                      _unsyncedRepayments[index],
+                      showCancelButton: true,
+                    );
                   },
                 ),
         ),
@@ -524,7 +549,10 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
                   children: [
                     Text(
                       '${_syncedRepayments.length} Successfully Synced',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     const Text('Repayments synchronized with server'),
                   ],
@@ -533,7 +561,7 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
             ],
           ),
         ),
-        
+
         // Repayments List
         Expanded(
           child: _syncedRepayments.isEmpty
@@ -543,14 +571,20 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
                     children: [
                       Icon(Icons.cloud_done, size: 64, color: Colors.grey),
                       SizedBox(height: 16),
-                      Text('No synced repayments', style: TextStyle(fontSize: 18, color: Colors.grey)),
+                      Text(
+                        'No synced repayments',
+                        style: TextStyle(fontSize: 18, color: Colors.grey),
+                      ),
                     ],
                   ),
                 )
               : ListView.builder(
                   itemCount: _syncedRepayments.length,
                   itemBuilder: (context, index) {
-                    return _buildRepaymentCard(_syncedRepayments[index], showCancelButton: true);
+                    return _buildRepaymentCard(
+                      _syncedRepayments[index],
+                      showCancelButton: true,
+                    );
                   },
                 ),
         ),
@@ -580,7 +614,10 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
                   children: [
                     Text(
                       '${_cancelledRepayments.length} Cancelled Repayments',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     const Text('Repayments that have been cancelled'),
                   ],
@@ -589,7 +626,7 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
             ],
           ),
         ),
-        
+
         // Cancelled Repayments List
         Expanded(
           child: _cancelledRepayments.isEmpty
@@ -599,14 +636,19 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen> with Ti
                     children: [
                       Icon(Icons.cancel, size: 64, color: Colors.grey),
                       SizedBox(height: 16),
-                      Text('No cancelled repayments', style: TextStyle(fontSize: 18, color: Colors.grey)),
+                      Text(
+                        'No cancelled repayments',
+                        style: TextStyle(fontSize: 18, color: Colors.grey),
+                      ),
                     ],
                   ),
                 )
               : ListView.builder(
                   itemCount: _cancelledRepayments.length,
                   itemBuilder: (context, index) {
-                    return _buildCancelledRepaymentCard(_cancelledRepayments[index]);
+                    return _buildCancelledRepaymentCard(
+                      _cancelledRepayments[index],
+                    );
                   },
                 ),
         ),

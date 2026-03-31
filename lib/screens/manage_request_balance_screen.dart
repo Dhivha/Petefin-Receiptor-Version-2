@@ -6,10 +6,12 @@ import '../models/request_balance.dart';
 
 class ManageRequestBalanceScreen extends StatefulWidget {
   @override
-  _ManageRequestBalanceScreenState createState() => _ManageRequestBalanceScreenState();
+  _ManageRequestBalanceScreenState createState() =>
+      _ManageRequestBalanceScreenState();
 }
 
-class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen> with TickerProviderStateMixin {
+class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
+    with TickerProviderStateMixin {
   final AuthService _authService = AuthService();
   final _cashbookDateController = TextEditingController();
   final _amountController = TextEditingController();
@@ -17,13 +19,13 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
   final _formKey = GlobalKey<FormState>();
 
   DateTime? _cashbookDate;
-  
+
   bool _isRequesting = false;
   bool _isProcessing = false;
   bool _isLoadingRequests = false;
   List<RequestBalance> _recentRequests = [];
   Timer? _refreshTimer;
-  
+
   late TabController _tabController;
 
   @override
@@ -48,7 +50,7 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
     setState(() {
       _isLoadingRequests = true;
     });
-    
+
     try {
       final requests = await _authService.getRecentRequestBalances(limit: 15);
       setState(() {
@@ -72,17 +74,21 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
   }
 
   bool _hasPendingRequests() {
-    return _recentRequests.any((request) => request.status == RequestBalanceStatus.pending);
+    return _recentRequests.any(
+      (request) => request.status == RequestBalanceStatus.pending,
+    );
   }
 
   int get _pendingRequestsCount {
-    return _recentRequests.where((request) => request.status == RequestBalanceStatus.pending).length;
+    return _recentRequests
+        .where((request) => request.status == RequestBalanceStatus.pending)
+        .length;
   }
 
   Future<void> _selectCashbookDate(BuildContext context) async {
     final DateTime now = DateTime.now();
     final DateTime yesterday = now.subtract(Duration(days: 1));
-    
+
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: _cashbookDate ?? now,
@@ -121,7 +127,10 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
 
     final double? amount = double.tryParse(_amountController.text.trim());
     if (amount == null || amount <= 0) {
-      _showSnackBar('Please enter a valid amount greater than 0', isError: true);
+      _showSnackBar(
+        'Please enter a valid amount greater than 0',
+        isError: true,
+      );
       return;
     }
 
@@ -140,12 +149,14 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
         _showSnackBar(result.message);
         _clearForm();
         await _loadRecentRequests();
-        
+
         // Show background processing notification
         Future.delayed(Duration(seconds: 2), () {
           if (mounted) {
-            _showSnackBar('Request is being processed in the background...', 
-                backgroundColor: Colors.blue);
+            _showSnackBar(
+              'Request is being processed in the background...',
+              backgroundColor: Colors.blue,
+            );
           }
         });
       } else {
@@ -172,7 +183,7 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
         _showSnackBar(result.message);
         await _loadRecentRequests();
       } else {
-        _showSnackBar(result.message, isError: true);  
+        _showSnackBar(result.message, isError: true);
       }
     } catch (e) {
       _showSnackBar('Processing failed: $e', isError: true);
@@ -188,7 +199,9 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Delete Request'),
-        content: Text('Are you sure you want to delete this balance request?\n\n${request.formattedAmount} - ${request.formattedDate}'),
+        content: Text(
+          'Are you sure you want to delete this balance request?\n\n${request.formattedAmount} - ${request.formattedDate}',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -206,7 +219,7 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
     if (confirm == true) {
       try {
         final result = await _authService.deleteRequestBalance(request.id!);
-        
+
         if (result.success) {
           _showSnackBar('Request deleted successfully');
           await _loadRecentRequests();
@@ -228,11 +241,16 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
     });
   }
 
-  void _showSnackBar(String message, {bool isError = false, Color? backgroundColor}) {
+  void _showSnackBar(
+    String message, {
+    bool isError = false,
+    Color? backgroundColor,
+  }) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: backgroundColor ?? (isError ? Colors.red : Colors.green),
+        backgroundColor:
+            backgroundColor ?? (isError ? Colors.red : Colors.green),
         duration: Duration(seconds: isError ? 4 : 3),
       ),
     );
@@ -258,7 +276,11 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
           controller: _tabController,
           tabs: [
             Tab(text: 'New Request'),
-            Tab(text: _pendingRequestsCount > 0 ? 'Recent Requests ($_pendingRequestsCount pending)' : 'Recent Requests'),
+            Tab(
+              text: _pendingRequestsCount > 0
+                  ? 'Recent Requests ($_pendingRequestsCount pending)'
+                  : 'Recent Requests',
+            ),
           ],
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
@@ -267,10 +289,7 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [
-          _buildNewRequestTab(),
-          _buildRecentRequestsTab(),
-        ],
+        children: [_buildNewRequestTab(), _buildRecentRequestsTab()],
       ),
     );
   }
@@ -299,14 +318,17 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
                       ),
                     ),
                     SizedBox(height: 16),
-                    
+
                     // Cashbook Date
                     TextFormField(
                       controller: _cashbookDateController,
                       decoration: InputDecoration(
                         labelText: 'Cashbook Date',
                         hintText: 'Select date (max 1 day back)',
-                        prefixIcon: Icon(Icons.calendar_today, color: Colors.blue),
+                        prefixIcon: Icon(
+                          Icons.calendar_today,
+                          color: Colors.blue,
+                        ),
                         border: OutlineInputBorder(),
                         focusedBorder: OutlineInputBorder(
                           borderSide: BorderSide(color: Colors.blue, width: 2),
@@ -322,15 +344,20 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
                       },
                     ),
                     SizedBox(height: 16),
-                    
+
                     // Amount
                     TextFormField(
                       controller: _amountController,
-                      keyboardType: TextInputType.numberWithOptions(decimal: true),
+                      keyboardType: TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
                       decoration: InputDecoration(
                         labelText: 'Amount (USD)',
                         hintText: 'Enter amount greater than 0',
-                        prefixIcon: Icon(Icons.attach_money, color: Colors.blue),
+                        prefixIcon: Icon(
+                          Icons.attach_money,
+                          color: Colors.blue,
+                        ),
                         border: OutlineInputBorder(),
                         focusedBorder: OutlineInputBorder(
                           borderSide: BorderSide(color: Colors.blue, width: 2),
@@ -348,7 +375,7 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
                       },
                     ),
                     SizedBox(height: 16),
-                    
+
                     // Reason
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -359,14 +386,20 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
                           decoration: InputDecoration(
                             labelText: 'Reason',
                             hintText: 'Enter reason (max 20 words)',
-                            prefixIcon: Icon(Icons.description, color: Colors.blue),
+                            prefixIcon: Icon(
+                              Icons.description,
+                              color: Colors.blue,
+                            ),
                             border: OutlineInputBorder(),
                             focusedBorder: OutlineInputBorder(
-                              borderSide: BorderSide(color: Colors.blue, width: 2),
+                              borderSide: BorderSide(
+                                color: Colors.blue,
+                                width: 2,
+                              ),
                             ),
                           ),
                           onChanged: (value) {
-                            setState(() {}); // Refresh word count 
+                            setState(() {}); // Refresh word count
                           },
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
@@ -386,15 +419,21 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
                             'Words: ${_getWordCount(_reasonController.text)}',
                             style: TextStyle(
                               fontSize: 12,
-                              color: _reasonController.text.trim().split(RegExp(r'\s+')).length > 20 
-                                  ? Colors.red : Colors.grey[600],
+                              color:
+                                  _reasonController.text
+                                          .trim()
+                                          .split(RegExp(r'\s+'))
+                                          .length >
+                                      20
+                                  ? Colors.red
+                                  : Colors.grey[600],
                             ),
                           ),
                         ),
                       ],
                     ),
                     SizedBox(height: 24),
-                    
+
                     // Submit Button
                     SizedBox(
                       width: double.infinity,
@@ -407,12 +446,16 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
                                 height: 20,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white,
+                                  ),
                                 ),
                               )
                             : Icon(Icons.send, color: Colors.white),
                         label: Text(
-                          _isRequesting ? 'Submitting Request...' : 'Submit Request',
+                          _isRequesting
+                              ? 'Submitting Request...'
+                              : 'Submit Request',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -431,9 +474,9 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
                 ),
               ),
             ),
-            
+
             SizedBox(height: 16),
-            
+
             // Process Queued Button
             Card(
               elevation: 2,
@@ -452,30 +495,34 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
                     SizedBox(height: 8),
                     Text(
                       'Manually check for pending requests and process them now',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey[600],
-                      ),
+                      style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                       textAlign: TextAlign.center,
                     ),
                     SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
-                        onPressed: _isProcessing ? null : _processQueuedRequests,
+                        onPressed: _isProcessing
+                            ? null
+                            : _processQueuedRequests,
                         icon: _isProcessing
                             ? SizedBox(
                                 width: 20,
                                 height: 20,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white,
+                                  ),
                                 ),
                               )
                             : Icon(Icons.sync, color: Colors.white),
                         label: Text(
                           _isProcessing ? 'Processing...' : 'Process Now',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.blue[600],
@@ -489,9 +536,9 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
                 ),
               ),
             ),
-            
+
             SizedBox(height: 16),
-            
+
             // Info Card
             Card(
               elevation: 2,
@@ -572,12 +619,15 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
                   ),
                   TextButton(
                     onPressed: _loadRecentRequests,
-                    child: Text('Refresh', style: TextStyle(color: Colors.blue)),
+                    child: Text(
+                      'Refresh',
+                      style: TextStyle(color: Colors.blue),
+                    ),
                   ),
                 ],
               ),
             ),
-          
+
           // Requests List
           Expanded(
             child: _isLoadingRequests
@@ -598,39 +648,39 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
                     ),
                   )
                 : _recentRequests.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.request_quote, size: 64, color: Colors.grey),
-                            SizedBox(height: 16),
-                            Text(
-                              'No balance requests yet',
-                              style: TextStyle(
-                                fontSize: 18,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                            SizedBox(height: 8),
-                            Text(
-                              'Submit your first balance request from the New Request tab',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey[500],
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.request_quote, size: 64, color: Colors.grey),
+                        SizedBox(height: 16),
+                        Text(
+                          'No balance requests yet',
+                          style: TextStyle(
+                            fontSize: 18,
+                            color: Colors.grey[600],
+                          ),
                         ),
-                      )
-                    : ListView.builder(
-                        padding: EdgeInsets.all(16.0),
-                        itemCount: _recentRequests.length,
-                        itemBuilder: (context, index) {
-                          final request = _recentRequests[index];
-                          return _buildRequestCard(request);
-                        },
-                      ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Submit your first balance request from the New Request tab',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[500],
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    padding: EdgeInsets.all(16.0),
+                    itemCount: _recentRequests.length,
+                    itemBuilder: (context, index) {
+                      final request = _recentRequests[index];
+                      return _buildRequestCard(request);
+                    },
+                  ),
           ),
         ],
       ),
@@ -696,15 +746,12 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
                 Spacer(),
                 Text(
                   'ID: ${request.id}',
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
                 ),
               ],
             ),
             SizedBox(height: 8),
-            
+
             Row(
               children: [
                 Expanded(
@@ -719,24 +766,18 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
                 ),
                 Text(
                   request.formattedDate,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                 ),
               ],
             ),
             SizedBox(height: 4),
-            
+
             Text(
               'Branch: ${request.branchName}',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[700],
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey[700]),
             ),
             SizedBox(height: 8),
-            
+
             Container(
               width: double.infinity,
               padding: EdgeInsets.all(8),
@@ -755,27 +796,22 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
               ),
             ),
             SizedBox(height: 8),
-            
+
             Text(
               'Requested: ${request.formattedDateTime}',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[600],
-              ),
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
-            
+
             if (request.syncedAt != null) ...[
               SizedBox(height: 4),
               Text(
                 'Completed: ${DateFormat('dd/MM/yyyy HH:mm').format(request.syncedAt!)}',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[600],
-                ),
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
               ),
             ],
-            
-            if (request.status == RequestBalanceStatus.failed && request.errorMessage != null) ...[
+
+            if (request.status == RequestBalanceStatus.failed &&
+                request.errorMessage != null) ...[
               SizedBox(height: 8),
               Container(
                 width: double.infinity,
@@ -787,14 +823,11 @@ class _ManageRequestBalanceScreenState extends State<ManageRequestBalanceScreen>
                 ),
                 child: Text(
                   'Error: ${request.errorMessage}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.red[700],
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.red[700]),
                 ),
               ),
             ],
-            
+
             SizedBox(height: 12),
             Row(
               children: [

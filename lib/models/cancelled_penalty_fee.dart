@@ -26,16 +26,23 @@ class CancelledPenaltyFee {
   // Create from API JSON response
   factory CancelledPenaltyFee.fromJson(Map<String, dynamic> json) {
     final cancelledDetails = json['cancelledDetails'] ?? {};
-    
+
     return CancelledPenaltyFee(
       branch: cancelledDetails['Branch'] ?? json['branch'] ?? '',
-      receiptNumber: cancelledDetails['ReceiptNumber'] ?? json['receiptNumber'] ?? '',
+      receiptNumber:
+          cancelledDetails['ReceiptNumber'] ?? json['receiptNumber'] ?? '',
       clientName: cancelledDetails['ClientName'] ?? json['clientName'] ?? '',
       amount: (cancelledDetails['Amount'] ?? json['amount'] ?? 0.0).toDouble(),
-      dateOfPayment: DateTime.parse(cancelledDetails['DateOfPayment'] ?? json['dateOfPayment'] ?? DateTime.now().toIso8601String()),
+      dateOfPayment: DateTime.parse(
+        cancelledDetails['DateOfPayment'] ??
+            json['dateOfPayment'] ??
+            DateTime.now().toIso8601String(),
+      ),
       cancelledBy: cancelledDetails['CancelledBy'] ?? json['cancelledBy'] ?? '',
       reason: cancelledDetails['Reason'] ?? json['reason'] ?? '',
-      cancelledAt: DateTime.parse(json['cancelledAt'] ?? DateTime.now().toIso8601String()),
+      cancelledAt: DateTime.parse(
+        json['cancelledAt'] ?? DateTime.now().toIso8601String(),
+      ),
       cancellationId: json['cancellationId'] ?? 0,
     );
   }
@@ -109,9 +116,9 @@ class CancelledPenaltyFee {
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
-    return other is CancelledPenaltyFee && 
-           other.receiptNumber == receiptNumber && 
-           other.cancellationId == cancellationId;
+    return other is CancelledPenaltyFee &&
+        other.receiptNumber == receiptNumber &&
+        other.cancellationId == cancellationId;
   }
 
   @override

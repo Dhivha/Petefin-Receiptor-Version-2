@@ -15,7 +15,7 @@ class _CreateTransferScreenState extends State<CreateTransferScreen> {
   final AuthService _authService = AuthService();
   final _formKey = GlobalKey<FormState>();
   final _amountController = TextEditingController();
-  
+
   String _selectedTransferType = 'USD_CASH';
   Branch? _selectedReceivingBranch;
   DateTime _selectedDate = DateTime.now();
@@ -69,16 +69,14 @@ class _CreateTransferScreenState extends State<CreateTransferScreen> {
       context: context,
       initialDate: _selectedDate,
       firstDate: DateTime.now().subtract(const Duration(days: 2)),
-      lastDate: DateTime.now(),
+      lastDate: DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day, 23, 59, 59), // Allow full day of today
       helpText: 'Select Transfer Date',
       confirmText: 'SELECT',
       cancelText: 'CANCEL',
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.light(
-              primary: Colors.blue[800]!,
-            ),
+            colorScheme: ColorScheme.light(primary: Colors.blue[800]!),
           ),
           child: child!,
         );
@@ -213,59 +211,69 @@ class _CreateTransferScreenState extends State<CreateTransferScreen> {
   Future<bool> _showConfirmationDialog() async {
     final amount = double.tryParse(_amountController.text.trim()) ?? 0;
     final currencySymbol = _getCurrencySymbol();
-    
+
     return await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirm Transfer'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Please confirm the transfer details:',
-              style: TextStyle(fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 16),
-            _buildConfirmationItem('Transfer Type', _getTransferTypeDisplayName(_selectedTransferType)),
-            _buildConfirmationItem('Amount', '$currencySymbol${amount.toStringAsFixed(2)}'),
-            _buildConfirmationItem('To Branch', _selectedReceivingBranch?.branchName ?? ''),
-            _buildConfirmationItem('Date', '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}'),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.orange[50],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.orange[200]!),
-              ),
-              child: const Text(
-                'This transfer will be queued locally and synced automatically when internet is available.',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.black87,
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: const Text('Confirm Transfer'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Please confirm the transfer details:',
+                  style: TextStyle(fontWeight: FontWeight.w500),
                 ),
+                const SizedBox(height: 16),
+                _buildConfirmationItem(
+                  'Transfer Type',
+                  _getTransferTypeDisplayName(_selectedTransferType),
+                ),
+                _buildConfirmationItem(
+                  'Amount',
+                  '$currencySymbol${amount.toStringAsFixed(2)}',
+                ),
+                _buildConfirmationItem(
+                  'To Branch',
+                  _selectedReceivingBranch?.branchName ?? '',
+                ),
+                _buildConfirmationItem(
+                  'Date',
+                  '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}',
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange[200]!),
+                  ),
+                  child: const Text(
+                    'This transfer will be queued locally and synced automatically when internet is available.',
+                    style: TextStyle(fontSize: 12, color: Colors.black87),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('CANCEL'),
               ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('CANCEL'),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue[800],
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('CONFIRM'),
+              ),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue[800],
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('CONFIRM'),
-          ),
-        ],
-      ),
-    ) ?? false;
+        ) ??
+        false;
   }
 
   Widget _buildConfirmationItem(String label, String value) {
@@ -285,10 +293,7 @@ class _CreateTransferScreenState extends State<CreateTransferScreen> {
             ),
           ),
           Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(color: Colors.black87),
-            ),
+            child: Text(value, style: const TextStyle(color: Colors.black87)),
           ),
         ],
       ),
@@ -361,7 +366,9 @@ class _CreateTransferScreenState extends State<CreateTransferScreen> {
                                   height: 20,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
                                   ),
                                 ),
                                 SizedBox(width: 12),
@@ -422,28 +429,29 @@ class _CreateTransferScreenState extends State<CreateTransferScreen> {
               },
               items: ['USD_CASH', 'USD_BANK', 'ZWG_BANK']
                   .map<DropdownMenuItem<String>>((String value) {
-                return DropdownMenuItem<String>(
-                  value: value,
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: value == 'USD_CASH' 
-                              ? Colors.green 
-                              : value == 'USD_BANK' 
-                                  ? Colors.blue 
+                    return DropdownMenuItem<String>(
+                      value: value,
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: value == 'USD_CASH'
+                                  ? Colors.green
+                                  : value == 'USD_BANK'
+                                  ? Colors.blue
                                   : Colors.orange,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(_getTransferTypeDisplayName(value)),
+                        ],
                       ),
-                      const SizedBox(width: 12),
-                      Text(_getTransferTypeDisplayName(value)),
-                    ],
-                  ),
-                );
-              }).toList(),
+                    );
+                  })
+                  .toList(),
             ),
           ),
         ),
@@ -534,7 +542,9 @@ class _CreateTransferScreenState extends State<CreateTransferScreen> {
                   _selectedReceivingBranch = newValue;
                 });
               },
-              items: _availableBranches.map<DropdownMenuItem<Branch>>((Branch branch) {
+              items: _availableBranches.map<DropdownMenuItem<Branch>>((
+                Branch branch,
+              ) {
                 return DropdownMenuItem<Branch>(
                   value: branch,
                   child: Text(branch.branchName),
@@ -548,10 +558,7 @@ class _CreateTransferScreenState extends State<CreateTransferScreen> {
             padding: const EdgeInsets.only(top: 8),
             child: Text(
               'No branches available. Please sync branches first.',
-              style: TextStyle(
-                color: Colors.red[600],
-                fontSize: 12,
-              ),
+              style: TextStyle(color: Colors.red[600], fontSize: 12),
             ),
           ),
       ],
@@ -583,24 +590,15 @@ class _CreateTransferScreenState extends State<CreateTransferScreen> {
             ),
             child: Row(
               children: [
-                Icon(
-                  Icons.calendar_month,
-                  color: Colors.blue[800],
-                ),
+                Icon(Icons.calendar_month, color: Colors.blue[800]),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      color: Colors.black87,
-                    ),
+                    style: const TextStyle(fontSize: 16, color: Colors.black87),
                   ),
                 ),
-                Icon(
-                  Icons.arrow_drop_down,
-                  color: Colors.grey[600],
-                ),
+                Icon(Icons.arrow_drop_down, color: Colors.grey[600]),
               ],
             ),
           ),
@@ -609,10 +607,7 @@ class _CreateTransferScreenState extends State<CreateTransferScreen> {
           padding: const EdgeInsets.only(top: 8),
           child: Text(
             'Date must be within the last 2 days and not in the future',
-            style: TextStyle(
-              color: Colors.grey[600],
-              fontSize: 12,
-            ),
+            style: TextStyle(color: Colors.grey[600], fontSize: 12),
           ),
         ),
       ],
@@ -632,11 +627,7 @@ class _CreateTransferScreenState extends State<CreateTransferScreen> {
         children: [
           Row(
             children: [
-              Icon(
-                Icons.info_outline,
-                color: Colors.blue[700],
-                size: 20,
-              ),
+              Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
               const SizedBox(width: 8),
               Text(
                 'Transfer Information',
