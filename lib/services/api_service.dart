@@ -7,9 +7,9 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 
 class ApiService {
   // The two URLs that should alternate when one is not working
-  static const String _primaryUrl = 'https://ndvf9jzb-7003.uks1.devtunnels.ms';
-  static const String _secondaryUrl =
-      'https://ndvf9jzb-7003.uks1.devtunnels.ms';
+  static const String _primaryUrl = 'https://petefin.lergtechsolutions.co.zw';
+  static const String _secondaryUrl =  'https://petefinadmin.paradigmuser.com';
+     
 
   static const String _activeUrlKey = 'active_url';
   static const String _lastFailedUrlKey = 'last_failed_url';
