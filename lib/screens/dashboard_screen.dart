@@ -556,7 +556,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           ListTile(
             leading: const Icon(Icons.cloud_download, color: Colors.blue),
-            title: const Text('Branch Loan Download'),
+            title: const Text('My Reports'),
             subtitle: const Text('Loan book, reports & analysis downloads'),
             onTap: () {
               Navigator.of(context).pop();

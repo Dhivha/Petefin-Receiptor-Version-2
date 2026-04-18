@@ -1304,7 +1304,7 @@ class ApiService {
 
   /// Download Branch Loan Book (Excel)
   Future<http.Response> downloadLoanBook(String branch) async {
-    return getFile('/api/MemberStatement/download-branch-loan-book-excel?branch=${Uri.encodeComponent(branch)}');
+    return getFile('/api/MemberStatement/download-branch-loanbook-excel?branch=${Uri.encodeComponent(branch)}');
   }
 
   /// Download Reminder PDF
@@ -1319,7 +1319,7 @@ class ApiService {
 
   /// Download Loan Book Analysis (Excel) — Accounts/Management only
   Future<http.Response> downloadLoanBookAnalysis(String targetDate) async {
-    return getFile('/api/LoanBookAnalysis/GenerateLoanBookAnalysis?targetDate=${Uri.encodeComponent(targetDate)}');
+    return getFile('/api/LoanBookAnalysis/GenerateLoanBookVarianceAnalysis?targetDate=${Uri.encodeComponent(targetDate)}');
   }
 
   /// Download Consolidated Income by Branch (Excel) — Accounts/Management only
@@ -1357,5 +1357,28 @@ class ApiService {
         'Both API endpoints are currently unavailable. Please try again later.',
       );
     }
+  }
+
+  // ===== MEMBER STATEMENT METHODS =====
+
+  /// Get client balance summary (TotalBalance + loan summaries)
+  Future<http.Response> getClientBalance(String clientId) async {
+    try {
+      final response = await get(
+        '/api/MemberStatement/get-client-balance/${Uri.encodeComponent(clientId)}',
+      );
+      print('Get client balance response status: ${response.statusCode}');
+      return response;
+    } catch (e) {
+      print('Get client balance error: $e');
+      rethrow;
+    }
+  }
+
+  /// Download member statement PDF for a client
+  Future<http.Response> downloadClientStatementPdf(String clientId) async {
+    return getFile(
+      '/api/MemberStatement/download-member-statement-pdf/${Uri.encodeComponent(clientId)}',
+    );
   }
 }
