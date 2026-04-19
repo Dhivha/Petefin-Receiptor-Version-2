@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../services/auth_service.dart';
+import '../services/defaulters_service.dart';
 import '../models/user.dart';
+import 'defaulters_details_screen.dart';
+import '../services/loan_book_service.dart';
 import 'clients_screen.dart';
 import 'repayment_screen.dart';
 import 'queued_repayments_screen.dart';
@@ -31,14 +35,35 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final AuthService _authService = AuthService();
+  final DefaultersService _defaultersService = DefaultersService();
+  final LoanBookService _loanBookService = LoanBookService();
+  final _amtFmt = NumberFormat('#,##0.00', 'en_US');
   int _currentIndex = 0;
+  bool _showHome = true;
   User? _currentUser;
+
+  void _onDefaultersUpdate() {
+    if (mounted) setState(() {});
+  }
+
+  void _onLoanBookUpdate() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void initState() {
     super.initState();
     _loadUser();
     _autoSyncClientsOnStart();
+    _defaultersService.addListener(_onDefaultersUpdate);
+    _loanBookService.addListener(_onLoanBookUpdate);
+  }
+
+  @override
+  void dispose() {
+    _defaultersService.removeListener(_onDefaultersUpdate);
+    _loanBookService.removeListener(_onLoanBookUpdate);
+    super.dispose();
   }
 
   Future<void> _loadUser() async {
@@ -49,6 +74,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     if (!_authService.isLoggedIn) {
       _navigateToLogin();
+    } else if (_currentUser != null) {
+      _defaultersService.start(_currentUser!.branch);
+      _loanBookService.start(_currentUser!.branch);
     }
   }
 
@@ -97,6 +125,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   String _getPageTitle() {
+    if (_showHome) return 'Dashboard';
     switch (_currentIndex) {
       case 0:
         return 'Clients';
@@ -118,6 +147,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildBody() {
+    if (_showHome) return _buildHomeScreen();
     switch (_currentIndex) {
       case 0:
         return const ClientsScreen();
@@ -136,6 +166,139 @@ class _DashboardScreenState extends State<DashboardScreen> {
       default:
         return _buildPlaceholderScreen('Dashboard', Icons.dashboard);
     }
+  }
+
+  String _updatedText(DateTime? lastUpdated) {
+    if (lastUpdated == null) return 'Updating…';
+    final diff = DateTime.now().difference(lastUpdated);
+    if (diff.inSeconds < 60) return 'Updated just now';
+    if (diff.inMinutes < 60) return 'Updated ${diff.inMinutes}m ago';
+    return 'Updated ${diff.inHours}h ago';
+  }
+
+  Widget _buildDashCard({
+    required Color cardColor,
+    required Color iconBgColor,
+    required Color iconColor,
+    required Color titleColor,
+    required Color valueColor,
+    required IconData icon,
+    required String title,
+    required double? value,
+    required DateTime? lastUpdated,
+    VoidCallback? onTap,
+  }) {
+    return Expanded(
+      child: AspectRatio(
+        aspectRatio: 1.0,
+        child: Card(
+          elevation: 4,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          color: cardColor,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  CircleAvatar(
+                    radius: 28,
+                    backgroundColor: iconBgColor,
+                    child: Icon(icon, color: iconColor, size: 32),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: titleColor),
+                  ),
+                  const SizedBox(height: 8),
+                  value == null
+                      ? SizedBox(
+                          width: 14, height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: iconColor.withOpacity(0.5)),
+                        )
+                      : Text(
+                          '\$${_amtFmt.format(value)}',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: valueColor),
+                        ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _updatedText(lastUpdated),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 10, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHomeScreen() {
+    final now = DateTime.now();
+    final todayStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Welcome, ${_currentUser?.firstName ?? ''}',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey.shade800),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _currentUser?.branch ?? '',
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildDashCard(
+                cardColor: Colors.red.shade50,
+                iconBgColor: Colors.red.shade100,
+                iconColor: Colors.red.shade700,
+                titleColor: Colors.red.shade700,
+                valueColor: Colors.red.shade800,
+                icon: Icons.warning_amber_rounded,
+                title: 'Defaulters',
+                value: _defaultersService.cachedAmount,
+                lastUpdated: _defaultersService.lastUpdated,
+                onTap: _currentUser == null
+                    ? null
+                    : () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => DefaultersDetailsScreen(
+                            branch: _currentUser!.branch,
+                            initialDate: todayStr,
+                          ),
+                        )),
+              ),
+              const SizedBox(width: 12),
+              _buildDashCard(
+                cardColor: Colors.green.shade50,
+                iconBgColor: Colors.green.shade100,
+                iconColor: Colors.green.shade700,
+                titleColor: Colors.green.shade700,
+                valueColor: Colors.green.shade800,
+                icon: Icons.account_balance_wallet_rounded,
+                title: 'Loan Book Value',
+                value: _loanBookService.cachedValue,
+                lastUpdated: _loanBookService.lastUpdated,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildPlaceholderScreen(String title, IconData icon) {
@@ -252,6 +415,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         currentIndex: _currentIndex,
         onTap: (index) {
           setState(() {
+            _showHome = false;
             _currentIndex = index;
           });
         },
@@ -414,6 +578,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ],
             ),
           ),
+          ListTile(
+            leading: Icon(Icons.dashboard, color: Colors.blue.shade600),
+            title: const Text('Dashboard'),
+            subtitle: const Text('Go to home screen'),
+            onTap: () {
+              Navigator.of(context).pop();
+              setState(() {
+                _showHome = true;
+              });
+            },
+          ),
+          const Divider(height: 1),
           ExpansionTile(
             leading: const Icon(Icons.people, color: Colors.blue),
             title: const Text('Client Management'),
