@@ -117,7 +117,6 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
 
   void _showRepaymentDialog(Disbursement disbursement) {
     final amountController = TextEditingController();
-    final paymentNumberController = TextEditingController();
     DateTime selectedDate = DateTime.now();
 
     showDialog(
@@ -134,6 +133,9 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
                   children: [
                     Text('Client: ${widget.client.fullName}'),
                     Text('Disbursement ID: ${disbursement.id}'),
+                    Text(
+                      'Product: ${disbursement.productName?.trim().isNotEmpty == true ? disbursement.productName : 'N/A'}',
+                    ),
                     Text('Currency: ${widget.currency}'),
                     const SizedBox(height: 16),
                     TextField(
@@ -145,15 +147,6 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
                       ),
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: paymentNumberController,
-                      decoration: const InputDecoration(
-                        labelText: 'Payment Number',
-                        prefixIcon: Icon(Icons.confirmation_number),
-                        border: OutlineInputBorder(),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -198,22 +191,11 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
                 ElevatedButton(
                   onPressed: () async {
                     final amount = double.tryParse(amountController.text);
-                    final paymentNumber = paymentNumberController.text.trim();
 
                     if (amount == null || amount <= 0) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                           content: Text('Please enter a valid amount'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                      return;
-                    }
-
-                    if (paymentNumber.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Please enter a payment number'),
                           backgroundColor: Colors.red,
                         ),
                       );
@@ -247,7 +229,7 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
                             clientId: widget.client.clientId,
                             amount: amount,
                             dateOfPayment: selectedDate,
-                            paymentNumber: paymentNumber,
+                            paymentNumber: '',
                             currency: widget.currency,
                             clientName: widget.client.fullName,
                           );
@@ -495,6 +477,9 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(
+                                        'Product: ${disbursement.productName?.trim().isNotEmpty == true ? disbursement.productName : 'N/A'}',
+                                      ),
+                                      Text(
                                         'Amount: ${_formatCurrency(disbursement.amount)}',
                                       ),
                                       Text(
@@ -584,9 +569,6 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
                                       ),
                                       Text(
                                         'Date: ${DateFormat('yyyy-MM-dd').format(repayment.dateOfPayment)}',
-                                      ),
-                                      Text(
-                                        'Payment #: ${repayment.paymentNumber}',
                                       ),
                                       Row(
                                         children: [

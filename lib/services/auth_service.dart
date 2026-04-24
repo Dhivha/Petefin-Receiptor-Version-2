@@ -33,6 +33,7 @@ class AuthService {
 
   User? _currentUser;
   Timer? _backgroundSyncTimer;
+  bool _isSyncingRepayments = false;
 
   /// Get the current logged-in user
   User? get currentUser => _currentUser;
@@ -270,10 +271,10 @@ class AuthService {
     required String clientId,
     required double amount,
     required DateTime dateOfPayment,
-    required String paymentNumber,
+    String paymentNumber = '',
     required String currency,
     required String clientName,
-    bool force = true,
+    bool force = false,
   }) async {
     if (_currentUser == null) {
       return RepaymentResult(
@@ -330,6 +331,13 @@ class AuthService {
 
   /// Auto-sync unsynced repayments in background
   Future<void> _autoSyncRepayments() async {
+    // LOCK: prevent concurrent sync runs that cause duplicate submissions
+    if (_isSyncingRepayments) {
+      print('⏳ Repayment sync already in progress, skipping...');
+      return;
+    }
+    _isSyncingRepayments = true;
+
     try {
       final unsyncedRepayments = await _databaseHelper.getUnsyncedRepayments();
       if (unsyncedRepayments.isEmpty) {
@@ -350,7 +358,7 @@ class AuthService {
           }
 
           if (response.statusCode >= 200 && response.statusCode < 300) {
-            // Success - mark as synced
+            // Success - mark as synced IMMEDIATELY before any other sync can re-submit
             await _databaseHelper.updateRepaymentSyncStatus(
               repayment.receiptNumber,
               true,
@@ -384,6 +392,9 @@ class AuthService {
       }
     } catch (e) {
       print('Error in auto-sync repayments: $e');
+    } finally {
+      // ALWAYS release the lock, even on error
+      _isSyncingRepayments = false;
     }
   }
 
@@ -397,6 +408,17 @@ class AuthService {
         failedCount: 0,
       );
     }
+
+    // Wait for any background sync to finish, then take the lock
+    if (_isSyncingRepayments) {
+      return RepaymentSyncResult(
+        success: false,
+        message: 'Sync already in progress, please wait...',
+        syncedCount: 0,
+        failedCount: 0,
+      );
+    }
+    _isSyncingRepayments = true;
 
     try {
       final unsyncedRepayments = await _databaseHelper.getUnsyncedRepayments();
@@ -462,10 +484,10 @@ class AuthService {
         syncedCount: 0,
         failedCount: 0,
       );
+    } finally {
+      _isSyncingRepayments = false;
     }
   }
-
-  /// Get repayments by client ID
   Future<List<Repayment>> getClientRepayments(String clientId) async {
     return await _databaseHelper.getRepaymentsByClientId(clientId);
   }
@@ -761,10 +783,10 @@ class AuthService {
     required String clientId,
     required double amount,
     required DateTime dateOfPayment,
-    required String paymentNumber,
+    String paymentNumber = '',
     required String currency,
     required String clientName,
-    bool force = true,
+    bool force = false,
   }) async {
     if (_currentUser == null) {
       return RepaymentResult(
