@@ -39,7 +39,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   
   # HTTP requests
-  http: ^1.6.0
+  dio: ^5.9.2
   
   # Local storage and preferences
   shared_preferences: ^2.5.4

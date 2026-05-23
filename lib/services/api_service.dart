@@ -8,8 +8,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 class ApiService {
   // The two URLs that should alternate when one is not working
   static const String _primaryUrl = 'https://petefin.lergtechsolutions.co.zw';
-  static const String _secondaryUrl =  'https://petefinadmin.paradigmuser.com';
-     
+  static const String _secondaryUrl = 'https://petefinadmin.paradigmuser.com';
 
   static const String _activeUrlKey = 'active_url';
   static const String _lastFailedUrlKey = 'last_failed_url';
@@ -19,7 +18,9 @@ class ApiService {
 
   // Singleton pattern
   static final ApiService _instance = ApiService._internal();
+
   factory ApiService() => _instance;
+
   ApiService._internal();
 
   /// Initialize the service and determine which URL to use
@@ -1167,7 +1168,8 @@ class ApiService {
     required String clientId,
     required String disbursementStartDate,
     required String disbursementEndDate,
-    required List<Map<String, dynamic>> images, // [{'bytes': Uint8List, 'extension': String}]
+    required List<Map<String, dynamic>>
+    images, // [{'bytes': Uint8List, 'extension': String}]
   }) async {
     await initialize();
 
@@ -1175,7 +1177,8 @@ class ApiService {
       throw Exception('No internet connection available');
     }
 
-    final url = '$_currentUrl/api/ClientDocumentSubmission/submit-with-file-upload';
+    final url =
+        '$_currentUrl/api/ClientDocumentSubmission/submit-with-file-upload';
 
     try {
       print('Making collateral submission request to: $url');
@@ -1192,7 +1195,7 @@ class ApiService {
         final imageData = images[i];
         final photoBytes = imageData['bytes'] as Uint8List;
         final photoExtension = imageData['extension'] as String;
-        
+
         request.files.add(
           http.MultipartFile.fromBytes(
             'Images', // API expects this field name
@@ -1264,8 +1267,10 @@ class ApiService {
         request.headers['Content-Type'] = 'application/json';
         final streamed = await client.send(request);
         final response = await http.Response.fromStream(streamed);
-        if (response.statusCode >= 200 && response.statusCode < 300) return response;
-        if (response.statusCode >= 500) throw HttpException('Server error: ${response.statusCode}');
+        if (response.statusCode >= 200 && response.statusCode < 300)
+          return response;
+        if (response.statusCode >= 500)
+          throw HttpException('Server error: ${response.statusCode}');
         return response;
       } finally {
         client.close();
@@ -1298,43 +1303,74 @@ class ApiService {
         client.close();
       }
     } catch (e) {
-      throw Exception('Both API endpoints are currently unavailable. Please try again later.');
+      throw Exception(
+        'Both API endpoints are currently unavailable. Please try again later.',
+      );
     }
   }
 
   /// Download Branch Loan Book (Excel)
   Future<http.Response> downloadLoanBook(String branch) async {
-    return getFile('/api/MemberStatement/download-branch-loanbook-excel?branch=${Uri.encodeComponent(branch)}');
+    return getFile(
+      '/api/MemberStatement/download-branch-loanbook-excel?branch=${Uri.encodeComponent(branch)}',
+    );
   }
 
   /// Download Reminder PDF
-  Future<http.Response> downloadReminderPdf(String branchName, String targetDate) async {
-    return getFile('/api/ForceTest/TestReminderPdf/${Uri.encodeComponent(branchName)}?targetDate=${Uri.encodeComponent(targetDate)}');
+  Future<http.Response> downloadReminderPdf(
+    String branchName,
+    String targetDate,
+  ) async {
+    return getFile(
+      '/api/ForceTest/TestReminderPdf/${Uri.encodeComponent(branchName)}?targetDate=${Uri.encodeComponent(targetDate)}',
+    );
   }
 
   /// Download Defaulters Report (PDF)
-  Future<http.Response> downloadDefaultersReport(String branchName, String targetDate) async {
-    return getFile('/api/PreciseDefault/download-amount-based-report?branchName=${Uri.encodeComponent(branchName)}&targetDate=${Uri.encodeComponent(targetDate)}');
+  Future<http.Response> downloadDefaultersReport(
+    String branchName,
+    String targetDate,
+  ) async {
+    return getFile(
+      '/api/PreciseDefault/download-amount-based-report?branchName=${Uri.encodeComponent(branchName)}&targetDate=${Uri.encodeComponent(targetDate)}',
+    );
   }
 
   /// Download Loan Book Analysis (Excel) — Accounts/Management only
   Future<http.Response> downloadLoanBookAnalysis(String targetDate) async {
-    return getFile('/api/LoanBookAnalysis/GenerateLoanBookVarianceAnalysis?targetDate=${Uri.encodeComponent(targetDate)}');
+    return getFile(
+      '/api/LoanBookAnalysis/GenerateLoanBookVarianceAnalysis?targetDate=${Uri.encodeComponent(targetDate)}',
+    );
   }
 
   /// Download Consolidated Income by Branch (Excel) — Accounts/Management only
-  Future<http.Response> downloadConsolidatedBranch(String startDate, String endDate) async {
-    return getFile('/api/ConsolidatedClassBranch/DownloadAllBranchesConsolidatedIncome?startDate=${Uri.encodeComponent(startDate)}&endDate=${Uri.encodeComponent(endDate)}');
+  Future<http.Response> downloadConsolidatedBranch(
+    String startDate,
+    String endDate,
+  ) async {
+    return getFile(
+      '/api/ConsolidatedClassBranch/DownloadAllBranchesConsolidatedIncome?startDate=${Uri.encodeComponent(startDate)}&endDate=${Uri.encodeComponent(endDate)}',
+    );
   }
 
   /// Download Consolidated Income by Day (Excel) — Accounts/Management only
-  Future<http.Response> downloadConsolidatedDay(String startDate, String endDate) async {
-    return getFile('/api/ConsolidatedClassDay/DownloadConsolidatedDay?startDate=${Uri.encodeComponent(startDate)}&endDate=${Uri.encodeComponent(endDate)}');
+  Future<http.Response> downloadConsolidatedDay(
+    String startDate,
+    String endDate,
+  ) async {
+    return getFile(
+      '/api/ConsolidatedClassDay/DownloadConsolidatedDay?startDate=${Uri.encodeComponent(startDate)}&endDate=${Uri.encodeComponent(endDate)}',
+    );
   }
 
   /// Download Daily Income (Excel) — Accounts/Management only
-  Future<http.Response> downloadDailyIncome(String startDate, String endDate) async {
-    return getFile('/api/DailyIncome/DownloadDailyIncome?startDate=${Uri.encodeComponent(startDate)}&endDate=${Uri.encodeComponent(endDate)}');
+  Future<http.Response> downloadDailyIncome(
+    String startDate,
+    String endDate,
+  ) async {
+    return getFile(
+      '/api/DailyIncome/DownloadDailyIncome?startDate=${Uri.encodeComponent(startDate)}&endDate=${Uri.encodeComponent(endDate)}',
+    );
   }
 
   /// Retry collateral submission (only once)
@@ -1345,7 +1381,9 @@ class ApiService {
     required List<Map<String, dynamic>> images,
   }) async {
     try {
-      print('Retrying collateral submission with alternative URL: $_currentUrl');
+      print(
+        'Retrying collateral submission with alternative URL: $_currentUrl',
+      );
       return await submitCollateralDocuments(
         clientId: clientId,
         disbursementStartDate: disbursementStartDate,

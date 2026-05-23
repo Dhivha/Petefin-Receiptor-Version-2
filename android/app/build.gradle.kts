@@ -10,7 +10,11 @@ plugins {
 
 val keyPropertiesFile = rootProject.file("key.properties")
 val keyProperties = Properties()
-keyProperties.load(FileInputStream(keyPropertiesFile))
+if (keyPropertiesFile.exists()) {
+    keyPropertiesFile.inputStream().use { stream ->
+        keyProperties.load(stream)
+    }
+}
 
 android {
     namespace = "com.petefin.zwg.petefin_zwg_receiptor"
@@ -30,7 +34,10 @@ android {
         create("release") {
             keyAlias = keyProperties["keyAlias"] as? String
             keyPassword = keyProperties["keyPassword"] as? String
-            storeFile = file(keyProperties["storeFile"] as String)
+            val storeFileValue = keyProperties["storeFile"] as? String
+            if (storeFileValue != null) {
+                storeFile = file(storeFileValue)
+            }
             storePassword = keyProperties["storePassword"] as? String
         }
     }
@@ -48,7 +55,9 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            if (keyPropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             ndk {
                 debugSymbolLevel = "none"
             }
