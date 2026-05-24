@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:async';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'services/auth_service.dart';
+import 'services/bluetooth_receipt_service.dart';
 import 'services/database_helper.dart';
 import 'services/client_background_service.dart';
 import 'screens/login_screen.dart';
@@ -17,6 +21,12 @@ void main() async {
 
 Future<void> _initializeApp() async {
   try {
+    await dotenv.load(fileName: '.env');
+    await Hive.initFlutter();
+    await Hive.openBox('api_cache');
+    await Hive.openBox('sync_metadata');
+    debugPrint('Environment and Hive initialized');
+
     // Initialize database
     await DatabaseHelper().database;
     debugPrint('Database initialized');
@@ -24,6 +34,9 @@ Future<void> _initializeApp() async {
     // Initialize auth service
     await AuthService().initialize();
     debugPrint('Auth service initialized');
+
+    await BluetoothReceiptService.initialize();
+    debugPrint('Bluetooth receipt service initialized');
 
     // Start client background service for auto-sync and cleanup
     ClientBackgroundService.start();
@@ -98,16 +111,21 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  Timer? _splashTimer;
+
   @override
   void initState() {
     super.initState();
     _checkAuthenticationStatus();
   }
 
-  Future<void> _checkAuthenticationStatus() async {
-    // Show splash for at least 2 seconds for better UX
-    await Future.delayed(const Duration(seconds: 2));
+  void _checkAuthenticationStatus() {
+    _splashTimer = Timer(const Duration(seconds: 2), () async {
+      await _navigateAfterAuthCheck();
+    });
+  }
 
+  Future<void> _navigateAfterAuthCheck() async {
     try {
       final authService = AuthService();
       await authService.initialize();
@@ -136,6 +154,12 @@ class _SplashScreenState extends State<SplashScreen> {
         );
       }
     }
+  }
+
+  @override
+  void dispose() {
+    _splashTimer?.cancel();
+    super.dispose();
   }
 
   @override

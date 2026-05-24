@@ -1,29 +1,134 @@
+import 'dart:async';
+
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/repayment.dart';
 import '../models/admin_fee.dart';
 import '../models/fcb_receipt.dart';
 import '../models/penalty_fee.dart';
 
 class BluetoothReceiptService {
+  static const String _savedPrinterIdKey = 'saved_printer_id';
   static BluetoothDevice? _connectedDevice;
+  static StreamSubscription<BluetoothConnectionState>? _connectionSubscription;
+  static bool _manualDisconnect = false;
+  static bool _isReconnecting = false;
+
+  static Future<void> initialize() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedPrinterId = prefs.getString(_savedPrinterIdKey);
+    if (savedPrinterId == null || savedPrinterId.isEmpty) return;
+
+    try {
+      final device = BluetoothDevice.fromId(savedPrinterId);
+      await connectToDevice(device, remember: true);
+    } catch (e) {
+      print('Could not restore Bluetooth printer connection: $e');
+    }
+  }
+
+  static Future<void> connectToDevice(
+    BluetoothDevice device, {
+    bool remember = true,
+  }) async {
+    _manualDisconnect = false;
+    if (device.isDisconnected) {
+      await device.connect(timeout: const Duration(seconds: 15));
+    }
+
+    _connectedDevice = device;
+    _watchConnection(device);
+
+    if (remember) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_savedPrinterIdKey, device.remoteId.toString());
+    }
+  }
+
+  static Future<void> disconnectDevice(BluetoothDevice device) async {
+    _manualDisconnect = true;
+    await _connectionSubscription?.cancel();
+    _connectionSubscription = null;
+    if (!device.isDisconnected) {
+      await device.disconnect();
+    }
+    if (_connectedDevice?.remoteId == device.remoteId) {
+      _connectedDevice = null;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_savedPrinterIdKey);
+  }
 
   // Set connected device from Bluetooth screen
   static void setConnectedDevice(BluetoothDevice? device) {
     _connectedDevice = device;
+    if (device != null) _watchConnection(device);
   }
 
   // Get current connected device
   static BluetoothDevice? get connectedDevice => _connectedDevice;
 
   // Check if printer is connected
-  static bool get isConnected => _connectedDevice != null;
+  static bool get isConnected =>
+      _connectedDevice != null && !_connectedDevice!.isDisconnected;
+
+  static void _watchConnection(BluetoothDevice device) {
+    _connectionSubscription?.cancel();
+    _connectionSubscription = device.connectionState.listen((state) {
+      if (state == BluetoothConnectionState.disconnected &&
+          !_manualDisconnect) {
+        _reconnect(device);
+      }
+    });
+  }
+
+  static Future<void> _reconnect(BluetoothDevice device) async {
+    if (_isReconnecting) return;
+
+    _isReconnecting = true;
+    try {
+      for (var attempt = 1; attempt <= 5; attempt++) {
+        if (_manualDisconnect) return;
+
+        try {
+          await Future.delayed(Duration(seconds: attempt));
+          await device.connect(timeout: const Duration(seconds: 10));
+          _connectedDevice = device;
+          _watchConnection(device);
+          print('Bluetooth printer reconnected');
+          return;
+        } catch (_) {
+          if (attempt == 5) {
+            print('Bluetooth printer reconnect failed after $attempt attempts');
+          }
+        }
+      }
+    } finally {
+      _isReconnecting = false;
+    }
+  }
+
+  static Future<bool> ensureConnected() async {
+    final device = _connectedDevice;
+    if (device == null) return false;
+    if (!device.isDisconnected) return true;
+
+    try {
+      await connectToDevice(device, remember: true);
+      return true;
+    } catch (e) {
+      print('Bluetooth reconnect before print failed: $e');
+      return false;
+    }
+  }
 
   /// Print receipt for a repayment
   static Future<bool> printRepaymentReceipt(
     Repayment repayment, {
     String? clientName,
   }) async {
-    if (!isConnected) {
+    if (!await ensureConnected()) {
       print('❌ No Bluetooth printer connected');
       return false;
     }
@@ -179,11 +284,15 @@ class BluetoothReceiptService {
 
   /// Send data to printer
   static Future<void> _sendToPrinter(List<int> data) async {
-    if (_connectedDevice == null) {
+    if (!await ensureConnected() || _connectedDevice == null) {
       throw Exception('No printer connected');
     }
 
     try {
+      try {
+        await _connectedDevice!.requestMtu(185);
+      } catch (_) {}
+
       // Get services
       final services = await _connectedDevice!.discoverServices();
       BluetoothCharacteristic? targetCharacteristic;
@@ -203,12 +312,17 @@ class BluetoothReceiptService {
         throw Exception('No writable characteristic found');
       }
 
-      // Send data in chunks (some printers have MTU limits)
-      const chunkSize = 20;
+      // Send data in chunks because printers and platforms have MTU limits.
+      final chunkSize = targetCharacteristic.properties.writeWithoutResponse
+          ? 180
+          : 20;
       for (int i = 0; i < data.length; i += chunkSize) {
         final end = (i + chunkSize).clamp(0, data.length);
         final chunk = data.sublist(i, end);
-        await targetCharacteristic.write(chunk, withoutResponse: false);
+        await targetCharacteristic.write(
+          chunk,
+          withoutResponse: targetCharacteristic.properties.writeWithoutResponse,
+        );
 
         // Small delay between chunks
         await Future.delayed(const Duration(milliseconds: 50));
@@ -220,7 +334,7 @@ class BluetoothReceiptService {
 
   /// Print test receipt
   static Future<bool> printTestReceipt() async {
-    if (!isConnected) {
+    if (!await ensureConnected()) {
       print('❌ No Bluetooth printer connected');
       return false;
     }
@@ -261,7 +375,7 @@ class BluetoothReceiptService {
     String? clientName,
     int maxRetries = 3,
   }) async {
-    if (!isConnected) {
+    if (!await ensureConnected()) {
       print('⚠️ Auto-print skipped: No printer connected');
       return;
     }
@@ -299,7 +413,7 @@ class BluetoothReceiptService {
 
   /// Print receipt for an admin fee
   static Future<bool> printAdminFeeReceipt(AdminFee adminFee) async {
-    if (!isConnected) {
+    if (!await ensureConnected()) {
       print('❌ No Bluetooth printer connected');
       return false;
     }
@@ -353,7 +467,7 @@ class BluetoothReceiptService {
     AdminFee adminFee, {
     int maxRetries = 3,
   }) async {
-    if (!isConnected) {
+    if (!await ensureConnected()) {
       print('⚠️ Auto-print skipped: No printer connected');
       return;
     }
@@ -392,7 +506,7 @@ class BluetoothReceiptService {
 
   /// Print receipt for an FCB receipt
   static Future<bool> printFCBReceipt(FCBReceipt fcbReceipt) async {
-    if (!isConnected) {
+    if (!await ensureConnected()) {
       print('❌ No Bluetooth printer connected');
       return false;
     }
@@ -519,7 +633,7 @@ class BluetoothReceiptService {
     FCBReceipt fcbReceipt, {
     int maxRetries = 3,
   }) async {
-    if (!isConnected) {
+    if (!await ensureConnected()) {
       print('⚠️ Auto-print skipped: No printer connected');
       return;
     }
@@ -556,7 +670,7 @@ class BluetoothReceiptService {
 
   /// Print receipt for a penalty fee
   static Future<bool> printPenaltyFeeReceipt(PenaltyFee penaltyFee) async {
-    if (!isConnected) {
+    if (!await ensureConnected()) {
       print('❌ No Bluetooth printer connected');
       return false;
     }
@@ -676,7 +790,7 @@ class BluetoothReceiptService {
     PenaltyFee penaltyFee, {
     int maxRetries = 3,
   }) async {
-    if (!isConnected) {
+    if (!await ensureConnected()) {
       print('⚠️ Auto-print skipped: No printer connected');
       return;
     }

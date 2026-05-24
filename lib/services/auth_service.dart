@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
-import 'package:http/http.dart' as http;
+import 'api_response.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/user.dart';
@@ -308,14 +308,9 @@ class AuthService {
 
       print('Repayment created locally: $receiptNumber for $currency $amount');
 
-      // Try to sync immediately if we have internet (with small delay to ensure DB write completes)
-      Future.delayed(const Duration(milliseconds: 500), () {
-        _autoSyncRepayments();
-      });
-
       return RepaymentResult(
         success: true,
-        message: 'Repayment created successfully',
+        message: 'Repayment saved locally and queued for sync',
         receiptNumber: receiptNumber,
         repayment: repayment,
       );
@@ -349,7 +344,17 @@ class AuthService {
 
       for (final repayment in unsyncedRepayments) {
         try {
-          late http.Response response;
+          final latest = await _databaseHelper.getRepaymentByReceiptNumber(
+            repayment.receiptNumber,
+          );
+          if (latest == null || latest.isSynced) {
+            print(
+              'Repayment ${repayment.receiptNumber} already synced, skipping',
+            );
+            continue;
+          }
+
+          late ApiResponse response;
 
           if (repayment.currency == 'USD') {
             response = await _apiService.submitUSDRepayment(repayment.toJson());
@@ -359,12 +364,18 @@ class AuthService {
 
           if (response.statusCode >= 200 && response.statusCode < 300) {
             // Success - mark as synced IMMEDIATELY before any other sync can re-submit
-            await _databaseHelper.updateRepaymentSyncStatus(
+            final updated = await _databaseHelper.updateRepaymentSyncStatus(
               repayment.receiptNumber,
               true,
               syncResponse: 'Success: ${response.statusCode}',
             );
-            print('✅ Synced repayment ${repayment.receiptNumber}');
+            if (updated > 0) {
+              print('Synced repayment ${repayment.receiptNumber}');
+            } else {
+              print(
+                'Repayment ${repayment.receiptNumber} was already synced, not resubmitting',
+              );
+            }
           } else {
             // Server error - update sync response but keep as unsynced
             await _databaseHelper.updateRepaymentSyncStatus(
@@ -437,7 +448,14 @@ class AuthService {
 
       for (final repayment in unsyncedRepayments) {
         try {
-          late http.Response response;
+          final latest = await _databaseHelper.getRepaymentByReceiptNumber(
+            repayment.receiptNumber,
+          );
+          if (latest == null || latest.isSynced) {
+            continue;
+          }
+
+          late ApiResponse response;
 
           if (repayment.currency == 'USD') {
             response = await _apiService.submitUSDRepayment(repayment.toJson());
@@ -446,12 +464,14 @@ class AuthService {
           }
 
           if (response.statusCode >= 200 && response.statusCode < 300) {
-            await _databaseHelper.updateRepaymentSyncStatus(
+            final updated = await _databaseHelper.updateRepaymentSyncStatus(
               repayment.receiptNumber,
               true,
               syncResponse: 'Success: ${response.statusCode}',
             );
-            syncedCount++;
+            if (updated > 0) {
+              syncedCount++;
+            }
           } else {
             await _databaseHelper.updateRepaymentSyncStatus(
               repayment.receiptNumber,
@@ -488,6 +508,7 @@ class AuthService {
       _isSyncingRepayments = false;
     }
   }
+
   Future<List<Repayment>> getClientRepayments(String clientId) async {
     return await _databaseHelper.getRepaymentsByClientId(clientId);
   }
@@ -836,14 +857,9 @@ class AuthService {
         '✅ Repayment created with system receipt number: ${receiptNumber.receiptNum} for $currency $amount',
       );
 
-      // Try to sync immediately
-      Future.delayed(const Duration(milliseconds: 500), () {
-        _autoSyncRepayments();
-      });
-
       return RepaymentResult(
         success: true,
-        message: 'Repayment created successfully with system receipt number',
+        message: 'Repayment saved locally and queued for sync',
         receiptNumber: receiptNumber.receiptNum,
         repayment: repayment,
       );
@@ -1791,7 +1807,11 @@ class AuthService {
       // Validate date (not more than 2 days ago)
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day); // Today at midnight
-      final transferDay = DateTime(transferDate.year, transferDate.month, transferDate.day); // Selected day at midnight
+      final transferDay = DateTime(
+        transferDate.year,
+        transferDate.month,
+        transferDate.day,
+      ); // Selected day at midnight
       final twoDaysAgo = today.subtract(Duration(days: 2));
 
       if (transferDay.isBefore(twoDaysAgo)) {
@@ -1893,7 +1913,7 @@ class AuthService {
           );
 
           // Call appropriate API endpoint based on transfer type and validate response
-          http.Response response;
+          ApiResponse response;
           bool syncSuccess = false;
 
           switch (transfer.transferType) {
@@ -2017,7 +2037,7 @@ class AuthService {
           final transferData = transfer.toJson();
 
           // Call appropriate API endpoint based on transfer type and validate response
-          http.Response response;
+          ApiResponse response;
           bool syncSuccess = false;
 
           switch (transfer.transferType) {
@@ -2292,7 +2312,11 @@ class AuthService {
       // Validate date (not more than 2 days ago)
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day); // Today at midnight
-      final expenseDay = DateTime(expenseDate.year, expenseDate.month, expenseDate.day); // Selected day at midnight
+      final expenseDay = DateTime(
+        expenseDate.year,
+        expenseDate.month,
+        expenseDate.day,
+      ); // Selected day at midnight
       final twoDaysAgo = today.subtract(Duration(days: 2));
 
       if (expenseDay.isBefore(twoDaysAgo)) {
@@ -2739,7 +2763,11 @@ class AuthService {
       // Validate date (not more than 2 days ago)
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day); // Today at midnight
-      final applicableDay = DateTime(dateApplicable.year, dateApplicable.month, dateApplicable.day); // Selected day at midnight
+      final applicableDay = DateTime(
+        dateApplicable.year,
+        dateApplicable.month,
+        dateApplicable.day,
+      ); // Selected day at midnight
       final twoDaysAgo = today.subtract(Duration(days: 2));
 
       if (applicableDay.isBefore(twoDaysAgo)) {
@@ -2832,14 +2860,17 @@ class AuthService {
 
               // Response: { "success": true, "message": "...", "data": { "Id": ... } }
               if (responseData is Map<String, dynamic>) {
-                final isSuccess = responseData['success'] == true ||
+                final isSuccess =
+                    responseData['success'] == true ||
                     (responseData.containsKey('data') &&
                         responseData['data'] != null &&
                         responseData['data']['Id'] != null);
                 if (isSuccess) {
                   syncSuccess = true;
                   final dataId = responseData['data']?['Id'];
-                  print('✅ Petty cash ${pettyCash.id} synced successfully - API ID: $dataId');
+                  print(
+                    '✅ Petty cash ${pettyCash.id} synced successfully - API ID: $dataId',
+                  );
                   print('✅ Response: ${responseData['message']}');
                 } else {
                   print(

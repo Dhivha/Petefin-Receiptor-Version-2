@@ -115,6 +115,18 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
     }
   }
 
+  Future<bool> _printSavedReceipt(Repayment repayment) async {
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      final printed = await BluetoothReceiptService.printRepaymentReceipt(
+        repayment,
+        clientName: widget.client.fullName,
+      );
+      if (printed) return true;
+      await Future.delayed(Duration(milliseconds: 400 * attempt));
+    }
+    return false;
+  }
+
   void _showRepaymentDialog(Disbursement disbursement) {
     final amountController = TextEditingController();
     DateTime selectedDate = DateTime.now();
@@ -215,7 +227,7 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
                             children: [
                               CircularProgressIndicator(),
                               SizedBox(width: 20),
-                              Text('Creating repayment...'),
+                              Text('Saving repayment locally...'),
                             ],
                           ),
                         );
@@ -232,46 +244,54 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
                             paymentNumber: '',
                             currency: widget.currency,
                             clientName: widget.client.fullName,
-                          );
+                      );
 
                       // Close loading dialog
-                      if (mounted) Navigator.of(context).pop();
+                      if (!context.mounted) return;
+                      Navigator.of(context).pop();
 
                       if (result.success) {
-                        // AUTO-PRINT RECEIPT IMMEDIATELY
+                        var printed = false;
                         if (result.repayment != null) {
-                          BluetoothReceiptService.autoPrintReceipt(
-                            result.repayment!,
-                            clientName: widget.client.fullName,
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Repayment saved locally. Printing receipt...',
+                              ),
+                              backgroundColor: Colors.blue,
+                              duration: Duration(seconds: 2),
+                            ),
                           );
+                          printed = await _printSavedReceipt(result.repayment!);
                         }
+                        if (!context.mounted) return;
 
                         // Show success dialog with receipt number
-                        _showSuccessDialog(result.receiptNumber!);
+                        _showSuccessDialog(
+                          result.receiptNumber!,
+                          printed: printed,
+                        );
                         // Reload data to show new repayment
                         _loadData();
                       } else {
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Error: ${result.message}'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
-                        }
-                      }
-                    } catch (e) {
-                      // Close loading dialog
-                      if (mounted) Navigator.of(context).pop();
-
-                      if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('Error creating repayment: $e'),
+                            content: Text('Error: ${result.message}'),
                             backgroundColor: Colors.red,
                           ),
                         );
                       }
+                    } catch (e) {
+                      // Close loading dialog
+                      if (!context.mounted) return;
+                      Navigator.of(context).pop();
+
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Error creating repayment: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
                     }
                   },
                   child: const Text('Create Repayment'),
@@ -284,7 +304,7 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
     );
   }
 
-  void _showSuccessDialog(String receiptNumber) {
+  void _showSuccessDialog(String receiptNumber, {required bool printed}) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -293,14 +313,14 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
             children: [
               Icon(Icons.check_circle, color: Colors.green),
               SizedBox(width: 8),
-              Text('Success!'),
+              Text('Saved'),
             ],
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Repayment created successfully'),
+              const Text('Repayment saved locally.'),
               const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(12),
@@ -328,10 +348,25 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
-              const Text(
-                '✅ Saved locally\n⏳ Will sync to server when online',
-                style: TextStyle(color: Colors.grey),
+              const SizedBox(height: 12),
+              _buildStatusLine(
+                icon: Icons.check_circle,
+                color: Colors.green,
+                text: 'Saved locally',
+              ),
+              const SizedBox(height: 8),
+              _buildStatusLine(
+                icon: printed ? Icons.print : Icons.print_disabled,
+                color: printed ? Colors.green : Colors.orange,
+                text: printed
+                    ? 'Receipt printed'
+                    : 'Receipt not printed. Check printer connection.',
+              ),
+              const SizedBox(height: 8),
+              _buildStatusLine(
+                icon: Icons.cloud_queue,
+                color: Colors.orange,
+                text: 'Will sync once online. Synced receipts are skipped.',
               ),
             ],
           ),
@@ -343,6 +378,26 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildStatusLine({
+    required IconData icon,
+    required Color color,
+    required String text,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: color, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(color: color, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
     );
   }
 

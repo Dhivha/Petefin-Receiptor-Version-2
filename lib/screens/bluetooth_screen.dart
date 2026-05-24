@@ -47,6 +47,13 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
 
     // Get already connected devices
     _connectedDevices = FlutterBluePlus.connectedDevices;
+    _selectedDevice = BluetoothReceiptService.connectedDevice;
+    if (_selectedDevice != null &&
+        !_connectedDevices.any(
+          (d) => d.remoteId == _selectedDevice!.remoteId,
+        )) {
+      _connectedDevices.add(_selectedDevice!);
+    }
     setState(() {});
   }
 
@@ -116,7 +123,7 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
         'Connecting to ${device.platformName.isEmpty ? "Device" : device.platformName}...',
       );
 
-      await device.connect(timeout: const Duration(seconds: 15));
+      await BluetoothReceiptService.connectToDevice(device);
 
       setState(() {
         _selectedDevice = device;
@@ -124,9 +131,6 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
           _connectedDevices.add(device);
         }
       });
-
-      // Set device for receipt service
-      BluetoothReceiptService.setConnectedDevice(device);
 
       Navigator.of(context).pop(); // Close loading dialog
 
@@ -147,7 +151,7 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
 
   Future<void> _disconnectDevice(BluetoothDevice device) async {
     try {
-      await device.disconnect();
+      await BluetoothReceiptService.disconnectDevice(device);
 
       setState(() {
         _connectedDevices.remove(device);

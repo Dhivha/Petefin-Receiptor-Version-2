@@ -1,19 +1,45 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:dio/dio.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:hive/hive.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'api_response.dart';
 
 class ApiService {
   // The two URLs that should alternate when one is not working
-  static const String _primaryUrl = 'https://petefin.lergtechsolutions.co.zw';
-  static const String _secondaryUrl = 'https://petefinadmin.paradigmuser.com';
+  static const String _defaultPrimaryUrl =
+      'https://petefin.lergtechsolutions.co.zw';
+  static const String _defaultSecondaryUrl =
+      'https://petefinadmin.paradigmuser.com';
 
   static const String _activeUrlKey = 'active_url';
   static const String _lastFailedUrlKey = 'last_failed_url';
+  static const String _cacheBoxName = 'api_cache';
 
-  String _currentUrl = _primaryUrl;
+  late final Dio _dio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 20),
+      receiveTimeout: const Duration(seconds: 30),
+      sendTimeout: const Duration(seconds: 30),
+      responseType: ResponseType.bytes,
+      validateStatus: (_) => true,
+    ),
+  )..interceptors.add(
+    LogInterceptor(
+      requestBody: true,
+      responseBody: true,
+    ),
+  );
+
+  final Map<String, Future<ApiResponse>> _inFlightRequests = {};
+
+  String _primaryUrl = _defaultPrimaryUrl;
+  String _secondaryUrl = _defaultSecondaryUrl;
+  String _currentUrl = _defaultPrimaryUrl;
   bool _isInitialized = false;
 
   // Singleton pattern
@@ -27,7 +53,14 @@ class ApiService {
   Future<void> initialize() async {
     if (_isInitialized) return;
 
-    // FORCE PRIMARY URL FOR REPAYMENTS - secondary doesn't have endpoints
+    _primaryUrl = dotenv.maybeGet('API_BASE_URL')?.trim().isNotEmpty == true
+        ? dotenv.get('API_BASE_URL').trim()
+        : _defaultPrimaryUrl;
+    _secondaryUrl =
+        dotenv.maybeGet('API_FALLBACK_URL')?.trim().isNotEmpty == true
+        ? dotenv.get('API_FALLBACK_URL').trim()
+        : _defaultSecondaryUrl;
+
     _currentUrl = _primaryUrl;
 
     final prefs = await SharedPreferences.getInstance();
@@ -59,63 +92,151 @@ class ApiService {
 
   /// Check internet connectivity
   Future<bool> _checkConnectivity() async {
-    final connectivityResult = await Connectivity().checkConnectivity();
-    return connectivityResult != ConnectivityResult.none;
+    final results = await Connectivity().checkConnectivity();
+    return results.any((result) => result != ConnectivityResult.none);
   }
 
-  /// Make HTTP GET request with automatic URL fallback
-  Future<http.Response> get(
+  Box get _cacheBox => Hive.box(_cacheBoxName);
+
+  String _cacheKey(String method, String endpoint, Object? body) {
+    final bodyKey = body == null ? '' : jsonEncode(body.toString());
+    return '$method:$_currentUrl$endpoint:$bodyKey';
+  }
+
+  ApiResponse? _readCachedResponse(String key) {
+    final cached = _cacheBox.get(key);
+    if (cached is! Map) return null;
+
+    final statusCode = cached['statusCode'] as int?;
+    final bodyBase64 = cached['body'] as String?;
+    if (statusCode == null || bodyBase64 == null) return null;
+
+    return ApiResponse(
+      statusCode: statusCode,
+      bodyBytes: Uint8List.fromList(base64Decode(bodyBase64)),
+    );
+  }
+
+  Future<void> _cacheResponse(String key, ApiResponse response) async {
+    if (!response.isSuccessful) return;
+
+    await _cacheBox.put(key, {
+      'statusCode': response.statusCode,
+      'body': base64Encode(response.bodyBytes),
+      'cachedAt': DateTime.now().toIso8601String(),
+    });
+  }
+
+  ApiResponse _toApiResponse(Response<List<int>> response) {
+    return ApiResponse(
+      statusCode: response.statusCode ?? 0,
+      bodyBytes: Uint8List.fromList(response.data ?? const []),
+      headers: response.headers.map.map(
+        (key, value) => MapEntry(key.toLowerCase(), value.join(',')),
+      ),
+    );
+  }
+
+  Future<ApiResponse> _dedupe(
+    String key,
+    Future<ApiResponse> Function() request,
+  ) {
+    final existing = _inFlightRequests[key];
+    if (existing != null) return existing;
+
+    final future = request();
+    _inFlightRequests[key] = future;
+    future.whenComplete(() => _inFlightRequests.remove(key));
+    return future;
+  }
+
+  Future<ApiResponse> _request(
+    String method,
     String endpoint, {
     Map<String, String>? headers,
+    Object? body,
+    bool allowCache = false,
+    bool hasRetried = false,
   }) async {
     await initialize();
 
-    if (!await _checkConnectivity()) {
+    final key = _cacheKey(method, endpoint, body);
+    final isOnline = await _checkConnectivity();
+    if (!isOnline) {
+      final cached = allowCache ? _readCachedResponse(key) : null;
+      if (cached != null) return cached;
       throw Exception('No internet connection available');
     }
 
-    final url = '$_currentUrl$endpoint';
-
-    try {
-      print('Making GET request to: $url');
-      final response = await http
-          .get(
-            Uri.parse(url),
+    return _dedupe(key, () async {
+      final url = '$_currentUrl$endpoint';
+      try {
+        print('Making $method request to: $url');
+        final response = await _dio.request<List<int>>(
+          url,
+          data: body,
+          options: Options(
+            method: method,
             headers: headers ?? {'Content-Type': 'application/json'},
-          )
-          .timeout(const Duration(seconds: 30));
+          ),
+        );
 
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        // Request successful
-        return response;
-      } else if (response.statusCode >= 500) {
-        // Server error - try alternative URL
-        throw HttpException('Server error: ${response.statusCode}');
-      } else {
-        // Client error - don't switch URLs
-        return response;
+        final apiResponse = _toApiResponse(response);
+        if (apiResponse.isSuccessful) {
+          if (allowCache) await _cacheResponse(key, apiResponse);
+          return apiResponse;
+        }
+
+        if (apiResponse.statusCode >= 500 && !hasRetried) {
+          throw HttpException('Server error: ${apiResponse.statusCode}');
+        }
+        return apiResponse;
+      } catch (e) {
+        final cached = allowCache ? _readCachedResponse(key) : null;
+        if (cached != null) return cached;
+
+        if (!hasRetried) {
+          print('Network error on $_currentUrl: $e');
+          await _markCurrentUrlAsFailed();
+          return _request(
+            method,
+            endpoint,
+            headers: headers,
+            body: body,
+            allowCache: allowCache,
+            hasRetried: true,
+          );
+        }
+
+        throw Exception(
+          'Both API endpoints are currently unavailable. Please try again later.',
+        );
       }
-    } on SocketException catch (e) {
-      print('Network error on $_currentUrl: $e');
-      await _markCurrentUrlAsFailed();
-      return _retryRequest(() => get(endpoint, headers: headers));
-    } on HttpException catch (e) {
-      print('HTTP error on $_currentUrl: $e');
-      await _markCurrentUrlAsFailed();
-      return _retryRequest(() => get(endpoint, headers: headers));
-    } catch (e) {
-      print('Unexpected error on $_currentUrl: $e');
-      await _markCurrentUrlAsFailed();
-      return _retryRequest(() => get(endpoint, headers: headers));
-    }
+    });
   }
 
-  /// Make HTTP POST request with automatic URL fallback
-  Future<http.Response> post(
+  /// Make GET request with cache and automatic URL fallback.
+  Future<ApiResponse> get(
+    String endpoint, {
+    Map<String, String>? headers,
+  }) async {
+    return _request('GET', endpoint, headers: headers, allowCache: true);
+  }
+
+  /// Make POST request with in-flight de-duplication and URL fallback.
+  Future<ApiResponse> post(
     String endpoint, {
     Map<String, String>? headers,
     Object? body,
   }) async {
+    return _request('POST', endpoint, headers: headers, body: body);
+  }
+
+  Future<ApiResponse> _multipartPost(
+    String endpoint,
+    FormData formData, {
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
     await initialize();
 
     if (!await _checkConnectivity()) {
@@ -123,54 +244,38 @@ class ApiService {
     }
 
     final url = '$_currentUrl$endpoint';
-
     try {
-      print('Making POST request to: $url');
-      final response = await http
-          .post(
-            Uri.parse(url),
-            headers: headers ?? {'Content-Type': 'application/json'},
-            body: body,
-          )
-          .timeout(const Duration(seconds: 30));
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        // Request successful
-        return response;
-      } else if (response.statusCode >= 500) {
-        // Server error - try alternative URL
-        throw HttpException('Server error: ${response.statusCode}');
-      } else {
-        // Client error - don't switch URLs
-        return response;
-      }
-    } on SocketException catch (e) {
-      print('Network error on $_currentUrl: $e');
-      await _markCurrentUrlAsFailed();
-      return _retryRequest(() => post(endpoint, headers: headers, body: body));
-    } on HttpException catch (e) {
-      print('HTTP error on $_currentUrl: $e');
-      await _markCurrentUrlAsFailed();
-      return _retryRequest(() => post(endpoint, headers: headers, body: body));
-    } catch (e) {
-      print('Unexpected error on $_currentUrl: $e');
-      await _markCurrentUrlAsFailed();
-      return _retryRequest(() => post(endpoint, headers: headers, body: body));
-    }
-  }
-
-  /// Retry the request with the alternative URL (only once)
-  Future<http.Response> _retryRequest(
-    Future<http.Response> Function() requestFunction,
-  ) async {
-    try {
-      print('Retrying request with alternative URL: $_currentUrl');
-      return await requestFunction();
-    } catch (e) {
-      // Both URLs failed
-      throw Exception(
-        'Both API endpoints are currently unavailable. Please try again later.',
+      print('Making multipart POST request to: $url');
+      final response = await _dio.post<List<int>>(
+        url,
+        data: formData,
+        options: Options(
+          sendTimeout: timeout,
+          receiveTimeout: timeout,
+          headers: {'Content-Type': 'multipart/form-data'},
+        ),
       );
+
+      final apiResponse = _toApiResponse(response);
+      if (apiResponse.statusCode >= 500) {
+        throw HttpException('Server error: ${apiResponse.statusCode}');
+      }
+      return apiResponse;
+    } catch (e) {
+      print('Multipart request failed on $_currentUrl: $e');
+      await _markCurrentUrlAsFailed();
+
+      final retryUrl = '$_currentUrl$endpoint';
+      final response = await _dio.post<List<int>>(
+        retryUrl,
+        data: formData,
+        options: Options(
+          sendTimeout: timeout,
+          receiveTimeout: timeout,
+          headers: {'Content-Type': 'multipart/form-data'},
+        ),
+      );
+      return _toApiResponse(response);
     }
   }
 
@@ -198,28 +303,24 @@ class ApiService {
 
     // Test primary URL
     try {
-      final response = await http
-          .get(
-            Uri.parse(_primaryUrl),
-            headers: {'Content-Type': 'application/json'},
-          )
-          .timeout(const Duration(seconds: 10));
+      final response = await _dio.get<List<int>>(
+        _primaryUrl,
+        options: Options(headers: {'Content-Type': 'application/json'}),
+      );
       results[_primaryUrl] =
-          response.statusCode >= 200 && response.statusCode < 400;
+          (response.statusCode ?? 0) >= 200 && (response.statusCode ?? 0) < 400;
     } catch (e) {
       results[_primaryUrl] = false;
     }
 
     // Test secondary URL
     try {
-      final response = await http
-          .get(
-            Uri.parse(_secondaryUrl),
-            headers: {'Content-Type': 'application/json'},
-          )
-          .timeout(const Duration(seconds: 10));
+      final response = await _dio.get<List<int>>(
+        _secondaryUrl,
+        options: Options(headers: {'Content-Type': 'application/json'}),
+      );
       results[_secondaryUrl] =
-          response.statusCode >= 200 && response.statusCode < 400;
+          (response.statusCode ?? 0) >= 200 && (response.statusCode ?? 0) < 400;
     } catch (e) {
       results[_secondaryUrl] = false;
     }
@@ -228,7 +329,7 @@ class ApiService {
   }
 
   /// Login with WhatsApp contact and PIN
-  Future<http.Response> login(String whatsAppContact, String pin) async {
+  Future<ApiResponse> login(String whatsAppContact, String pin) async {
     final loginData = {"WhatsAppContact": whatsAppContact, "Pin": pin};
 
     try {
@@ -249,7 +350,7 @@ class ApiService {
   }
 
   /// Load clients for a specific branch
-  Future<http.Response> loadClients(String branchName) async {
+  Future<ApiResponse> loadClients(String branchName) async {
     try {
       final response = await get(
         '/api/QuickLoadClients/load-clients?branchName=${Uri.encodeComponent(branchName)}',
@@ -266,15 +367,13 @@ class ApiService {
   }
 
   /// Test secondary URL connectivity
-  Future<http.Response> testSecondaryUrl() async {
+  Future<ApiResponse> testSecondaryUrl() async {
     try {
-      final response = await http
-          .get(
-            Uri.parse(_secondaryUrl),
-            headers: {'Content-Type': 'application/json'},
-          )
-          .timeout(const Duration(seconds: 10));
-      return response;
+      final response = await _dio.get<List<int>>(
+        _secondaryUrl,
+        options: Options(headers: {'Content-Type': 'application/json'}),
+      );
+      return _toApiResponse(response);
     } catch (e) {
       print('Secondary URL test failed: $e');
       rethrow;
@@ -282,7 +381,7 @@ class ApiService {
   }
 
   /// Load disbursements for a specific client
-  Future<http.Response> loadDisbursements(String clientId) async {
+  Future<ApiResponse> loadDisbursements(String clientId) async {
     try {
       final response = await get(
         '/api/Disbursement/get-client-disbursements?clientId=$clientId',
@@ -299,7 +398,7 @@ class ApiService {
   }
 
   /// Submit USD repayment
-  Future<http.Response> submitUSDRepayment(
+  Future<ApiResponse> submitUSDRepayment(
     Map<String, dynamic> repaymentData,
   ) async {
     try {
@@ -320,7 +419,7 @@ class ApiService {
   }
 
   /// Submit ZWG repayment
-  Future<http.Response> submitZWGRepayment(
+  Future<ApiResponse> submitZWGRepayment(
     Map<String, dynamic> repaymentData,
   ) async {
     try {
@@ -342,7 +441,7 @@ class ApiService {
   }
 
   /// Load receipt numbers by branch and user
-  Future<http.Response> loadReceiptNumbers(String branch, int userId) async {
+  Future<ApiResponse> loadReceiptNumbers(String branch, int userId) async {
     try {
       final response = await get(
         '/api/GenerateReceiptNumber/bybranchuser?branch=${Uri.encodeComponent(branch)}&userId=$userId',
@@ -361,7 +460,7 @@ class ApiService {
   }
 
   /// Cancel a repayment
-  Future<http.Response> cancelRepayment(
+  Future<ApiResponse> cancelRepayment(
     Map<String, dynamic> cancellationData,
   ) async {
     try {
@@ -382,7 +481,7 @@ class ApiService {
   }
 
   /// Get cancelled repayments by branch
-  Future<http.Response> getCancelledRepayments(String branch) async {
+  Future<ApiResponse> getCancelledRepayments(String branch) async {
     try {
       final response = await get(
         '/api/CancelledRepayments/get-cancelled-repayments?branch=${Uri.encodeComponent(branch)}',
@@ -401,9 +500,7 @@ class ApiService {
   }
 
   /// Add penalty fee
-  Future<http.Response> addPenaltyFee(
-    Map<String, dynamic> penaltyFeeData,
-  ) async {
+  Future<ApiResponse> addPenaltyFee(Map<String, dynamic> penaltyFeeData) async {
     try {
       final response = await post(
         '/api/OtherIncome/add-penaltyfee',
@@ -421,7 +518,7 @@ class ApiService {
     }
   }
 
-  Future<http.Response> addFinalPenaltyFee(
+  Future<ApiResponse> addFinalPenaltyFee(
     Map<String, dynamic> finalPenaltyFeeData,
   ) async {
     try {
@@ -442,7 +539,7 @@ class ApiService {
   }
 
   /// Cancel penalty receipt
-  Future<http.Response> cancelPenaltyReceipt(
+  Future<ApiResponse> cancelPenaltyReceipt(
     Map<String, dynamic> cancellationData,
   ) async {
     try {
@@ -463,7 +560,7 @@ class ApiService {
   }
 
   /// Cancel admin receipt
-  Future<http.Response> cancelAdminReceipt(
+  Future<ApiResponse> cancelAdminReceipt(
     Map<String, dynamic> cancellationData,
   ) async {
     try {
@@ -484,7 +581,7 @@ class ApiService {
   }
 
   /// Cancel FCB receipt
-  Future<http.Response> cancelFCBReceipt(
+  Future<ApiResponse> cancelFCBReceipt(
     Map<String, dynamic> cancellationData,
   ) async {
     try {
@@ -505,7 +602,7 @@ class ApiService {
   }
 
   /// Get cancelled penalty receipts by branch
-  Future<http.Response> getCancelledPenaltyReceipts(String branch) async {
+  Future<ApiResponse> getCancelledPenaltyReceipts(String branch) async {
     try {
       final response = await get(
         '/api/CancelPenaltyReceipts/get-cancelled-penalty-receipts?branch=${Uri.encodeComponent(branch)}',
@@ -526,7 +623,7 @@ class ApiService {
   // ===== ADMIN FEES RECEIPT METHODS =====
 
   /// Post admin fees receipt
-  Future<http.Response> postAdminFeesReceipt(
+  Future<ApiResponse> postAdminFeesReceipt(
     Map<String, dynamic> adminData,
   ) async {
     try {
@@ -549,7 +646,7 @@ class ApiService {
   // ===== FCB RECEIPT METHODS =====
 
   /// Post FCB receipt
-  Future<http.Response> postFCBReceipt(Map<String, dynamic> fcbData) async {
+  Future<ApiResponse> postFCBReceipt(Map<String, dynamic> fcbData) async {
     try {
       final response = await post(
         '/api/FCBReceipt',
@@ -570,7 +667,7 @@ class ApiService {
   // ===== CANCELLATION METHODS =====
 
   /// Post cancellation for admin receipt
-  Future<http.Response> postCancelledAdminReceipt(
+  Future<ApiResponse> postCancelledAdminReceipt(
     Map<String, dynamic> cancellationData,
   ) async {
     try {
@@ -593,7 +690,7 @@ class ApiService {
   }
 
   /// Get all branches
-  Future<http.Response> getBranches() async {
+  Future<ApiResponse> getBranches() async {
     try {
       final response = await get('/api/Branch');
 
@@ -633,7 +730,7 @@ class ApiService {
   // ===== TRANSFER METHODS =====
 
   /// Submit USD Cash transfer
-  Future<http.Response> submitUSDCashTransfer(
+  Future<ApiResponse> submitUSDCashTransfer(
     Map<String, dynamic> transferData,
   ) async {
     try {
@@ -654,7 +751,7 @@ class ApiService {
   }
 
   /// Submit USD Bank transfer
-  Future<http.Response> submitUSDBankTransfer(
+  Future<ApiResponse> submitUSDBankTransfer(
     Map<String, dynamic> transferData,
   ) async {
     try {
@@ -675,7 +772,7 @@ class ApiService {
   }
 
   /// Submit ZWG Bank transfer
-  Future<http.Response> submitZWGBankTransfer(
+  Future<ApiResponse> submitZWGBankTransfer(
     Map<String, dynamic> transferData,
   ) async {
     try {
@@ -701,7 +798,7 @@ class ApiService {
     String transferType,
   ) async {
     try {
-      http.Response response;
+      ApiResponse response;
 
       switch (transferType) {
         case 'USD_CASH':
@@ -737,7 +834,7 @@ class ApiService {
   // ===== EXPENSE METHODS =====
 
   /// Submit expense
-  Future<http.Response> submitExpense(Map<String, dynamic> expenseData) async {
+  Future<ApiResponse> submitExpense(Map<String, dynamic> expenseData) async {
     try {
       final response = await post(
         '/api/Expenses',
@@ -777,9 +874,7 @@ class ApiService {
   // ===== PETTY CASH METHODS =====
 
   /// Submit fund petty cash
-  Future<http.Response> fundPettyCash(
-    Map<String, dynamic> pettyCashData,
-  ) async {
+  Future<ApiResponse> fundPettyCash(Map<String, dynamic> pettyCashData) async {
     try {
       final response = await post(
         '/api/FundPettyCash',
@@ -819,7 +914,7 @@ class ApiService {
   // ===== CASH COUNT METHODS =====
 
   /// Submit daily cash count
-  Future<http.Response> captureDailyCashCount(
+  Future<ApiResponse> captureDailyCashCount(
     Map<String, dynamic> cashCountData,
   ) async {
     try {
@@ -861,7 +956,7 @@ class ApiService {
   // ===== CASHBOOK DOWNLOAD METHODS =====
 
   /// Download cashbook document
-  Future<http.Response> downloadCashbookDocument(
+  Future<ApiResponse> downloadCashbookDocument(
     Map<String, dynamic> requestData,
   ) async {
     try {
@@ -909,7 +1004,7 @@ class ApiService {
   // ===== REQUEST BALANCE METHODS =====
 
   /// Submit request balance
-  Future<http.Response> requestBalance(Map<String, dynamic> requestData) async {
+  Future<ApiResponse> requestBalance(Map<String, dynamic> requestData) async {
     try {
       final response = await post(
         '/api/RequestBalance/request-balance',
@@ -949,7 +1044,7 @@ class ApiService {
   // ===== CLIENT MANAGEMENT METHODS =====
 
   /// Add client with file upload using multipart/form-data
-  Future<http.Response> addClientWithFile({
+  Future<ApiResponse> addClientWithFile({
     required String firstName,
     required String lastName,
     required String nationalIdNumber,
@@ -963,178 +1058,61 @@ class ApiService {
     Uint8List? photoBytes,
     String? photoExtension,
   }) async {
-    await initialize();
-
-    if (!await _checkConnectivity()) {
-      throw Exception('No internet connection available');
-    }
-
-    final url = '$_currentUrl/api/Client/add-with-file';
-
     try {
-      print('Making multipart POST request to: $url');
+      final formData = FormData.fromMap({
+        'FirstName': firstName,
+        'LastName': lastName,
+        'NationalIdNumber': nationalIdNumber,
+        'Gender': gender,
+        'NextOfKinContact': nextOfKinContact,
+        'NextOfKinName': nextOfKinName,
+        'RelationshipWithNOK': relationshipWithNOK,
+        'WhatsAppContact': whatsAppContact,
+        'EmailAddress': emailAddress,
+        'Branch': branch,
+      });
 
-      var request = http.MultipartRequest('POST', Uri.parse(url));
-
-      // Add form fields
-      request.fields['FirstName'] = firstName;
-      request.fields['LastName'] = lastName;
-      request.fields['NationalIdNumber'] = nationalIdNumber;
-      request.fields['Gender'] = gender;
-      request.fields['NextOfKinContact'] = nextOfKinContact;
-      request.fields['NextOfKinName'] = nextOfKinName;
-      request.fields['RelationshipWithNOK'] = relationshipWithNOK;
-      request.fields['WhatsAppContact'] = whatsAppContact;
-      request.fields['EmailAddress'] = emailAddress;
-      request.fields['Branch'] = branch;
-
-      // Add photo if provided
       if (photoBytes != null && photoExtension != null) {
-        request.files.add(
-          http.MultipartFile.fromBytes(
+        formData.files.add(
+          MapEntry(
             'Photo',
-            photoBytes,
-            filename: 'client_photo.$photoExtension',
+            MultipartFile.fromBytes(
+              photoBytes,
+              filename: 'client_photo.$photoExtension',
+            ),
           ),
         );
       }
 
-      final streamedResponse = await request.send().timeout(
-        const Duration(seconds: 30),
-      );
-      final response = await http.Response.fromStream(streamedResponse);
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        return response;
-      } else if (response.statusCode >= 500) {
-        throw HttpException('Server error: ${response.statusCode}');
-      } else {
-        return response;
-      }
-    } on SocketException catch (e) {
-      print('Network error on $_currentUrl: $e');
-      await _markCurrentUrlAsFailed();
-      return _retryAddClientWithFile(
-        firstName: firstName,
-        lastName: lastName,
-        nationalIdNumber: nationalIdNumber,
-        gender: gender,
-        nextOfKinContact: nextOfKinContact,
-        nextOfKinName: nextOfKinName,
-        relationshipWithNOK: relationshipWithNOK,
-        whatsAppContact: whatsAppContact,
-        emailAddress: emailAddress,
-        branch: branch,
-        photoBytes: photoBytes,
-        photoExtension: photoExtension,
-      );
-    } on HttpException catch (e) {
-      print('HTTP error on $_currentUrl: $e');
-      await _markCurrentUrlAsFailed();
-      return _retryAddClientWithFile(
-        firstName: firstName,
-        lastName: lastName,
-        nationalIdNumber: nationalIdNumber,
-        gender: gender,
-        nextOfKinContact: nextOfKinContact,
-        nextOfKinName: nextOfKinName,
-        relationshipWithNOK: relationshipWithNOK,
-        whatsAppContact: whatsAppContact,
-        emailAddress: emailAddress,
-        branch: branch,
-        photoBytes: photoBytes,
-        photoExtension: photoExtension,
-      );
+      return await _multipartPost('/api/Client/add-with-file', formData);
     } catch (e) {
-      print('Unexpected error on $_currentUrl: $e');
-      await _markCurrentUrlAsFailed();
-      return _retryAddClientWithFile(
-        firstName: firstName,
-        lastName: lastName,
-        nationalIdNumber: nationalIdNumber,
-        gender: gender,
-        nextOfKinContact: nextOfKinContact,
-        nextOfKinName: nextOfKinName,
-        relationshipWithNOK: relationshipWithNOK,
-        whatsAppContact: whatsAppContact,
-        emailAddress: emailAddress,
-        branch: branch,
-        photoBytes: photoBytes,
-        photoExtension: photoExtension,
-      );
-    }
-  }
-
-  /// Retry add client with file (only once)
-  Future<http.Response> _retryAddClientWithFile({
-    required String firstName,
-    required String lastName,
-    required String nationalIdNumber,
-    required String gender,
-    required String nextOfKinContact,
-    required String nextOfKinName,
-    required String relationshipWithNOK,
-    required String whatsAppContact,
-    required String emailAddress,
-    required String branch,
-    Uint8List? photoBytes,
-    String? photoExtension,
-  }) async {
-    try {
-      print('Retrying add client with alternative URL: $_currentUrl');
-      return await addClientWithFile(
-        firstName: firstName,
-        lastName: lastName,
-        nationalIdNumber: nationalIdNumber,
-        gender: gender,
-        nextOfKinContact: nextOfKinContact,
-        nextOfKinName: nextOfKinName,
-        relationshipWithNOK: relationshipWithNOK,
-        whatsAppContact: whatsAppContact,
-        emailAddress: emailAddress,
-        branch: branch,
-        photoBytes: photoBytes,
-        photoExtension: photoExtension,
-      );
-    } catch (e) {
-      throw Exception(
-        'Both API endpoints are currently unavailable. Please try again later.',
-      );
+      print('Add client upload error: $e');
+      rethrow;
     }
   }
 
   /// Upload client photo
-  Future<http.Response> uploadClientPhoto({
+  Future<ApiResponse> uploadClientPhoto({
     required String clientId,
     required Uint8List photoBytes,
     required String photoExtension,
   }) async {
-    await initialize();
-
-    if (!await _checkConnectivity()) {
-      throw Exception('No internet connection available');
-    }
-
-    final url = '$_currentUrl/api/Client/upload-client-photo';
-
     try {
-      print('Making photo upload request to: $url');
-
-      var request = http.MultipartRequest('POST', Uri.parse(url));
-
-      request.fields['ClientId'] = clientId;
-      request.files.add(
-        http.MultipartFile.fromBytes(
+      final formData = FormData.fromMap({'ClientId': clientId});
+      formData.files.add(
+        MapEntry(
           'Photo',
-          photoBytes,
-          filename: 'client_photo.$photoExtension',
+          MultipartFile.fromBytes(
+            photoBytes,
+            filename: 'client_photo.$photoExtension',
+          ),
         ),
       );
 
-      final streamedResponse = await request.send().timeout(
-        const Duration(seconds: 30),
+      final response = await _multipartPost(
+        '/api/Client/upload-client-photo',
+        formData,
       );
-      final response = await http.Response.fromStream(streamedResponse);
 
       print('Upload photo response status: ${response.statusCode}');
       print('Upload photo response body: ${response.body}');
@@ -1147,7 +1125,7 @@ class ApiService {
   }
 
   /// Get client photo URL
-  Future<http.Response> getClientPhotoUrl(String clientId) async {
+  Future<ApiResponse> getClientPhotoUrl(String clientId) async {
     try {
       final response = await get(
         '/api/Client/get-client-photo-url?clientId=${Uri.encodeComponent(clientId)}',
@@ -1164,160 +1142,70 @@ class ApiService {
   }
 
   /// Submit collateral documents with file upload using multipart/form-data
-  Future<http.Response> submitCollateralDocuments({
+  Future<ApiResponse> submitCollateralDocuments({
     required String clientId,
     required String disbursementStartDate,
     required String disbursementEndDate,
     required List<Map<String, dynamic>>
     images, // [{'bytes': Uint8List, 'extension': String}]
   }) async {
-    await initialize();
-
-    if (!await _checkConnectivity()) {
-      throw Exception('No internet connection available');
-    }
-
-    final url =
-        '$_currentUrl/api/ClientDocumentSubmission/submit-with-file-upload';
-
     try {
-      print('Making collateral submission request to: $url');
+      final formData = FormData.fromMap({
+        'ClientId': clientId,
+        'DisbursementStartDate': disbursementStartDate,
+        'DisbursementEndDate': disbursementEndDate,
+      });
 
-      var request = http.MultipartRequest('POST', Uri.parse(url));
-
-      // Add form fields
-      request.fields['ClientId'] = clientId;
-      request.fields['DisbursementStartDate'] = disbursementStartDate;
-      request.fields['DisbursementEndDate'] = disbursementEndDate;
-
-      // Add multiple images
       for (int i = 0; i < images.length; i++) {
         final imageData = images[i];
         final photoBytes = imageData['bytes'] as Uint8List;
         final photoExtension = imageData['extension'] as String;
 
-        request.files.add(
-          http.MultipartFile.fromBytes(
-            'Images', // API expects this field name
-            photoBytes,
-            filename: 'collateral_image_$i.$photoExtension',
+        formData.files.add(
+          MapEntry(
+            'Images',
+            MultipartFile.fromBytes(
+              photoBytes,
+              filename: 'collateral_image_$i.$photoExtension',
+            ),
           ),
         );
       }
 
-      final streamedResponse = await request.send().timeout(
-        const Duration(seconds: 45), // Longer timeout for multiple files
+      final response = await _multipartPost(
+        '/api/ClientDocumentSubmission/submit-with-file-upload',
+        formData,
+        timeout: const Duration(seconds: 45),
       );
-      final response = await http.Response.fromStream(streamedResponse);
 
       print('Collateral submission response status: ${response.statusCode}');
       print('Collateral submission response body: ${response.body}');
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        return response;
-      } else if (response.statusCode >= 500) {
-        throw HttpException('Server error: ${response.statusCode}');
-      } else {
-        return response;
-      }
-    } on SocketException catch (e) {
-      print('Network error on $_currentUrl: $e');
-      await _markCurrentUrlAsFailed();
-      return _retryCollateralSubmission(
-        clientId: clientId,
-        disbursementStartDate: disbursementStartDate,
-        disbursementEndDate: disbursementEndDate,
-        images: images,
-      );
-    } on HttpException catch (e) {
-      print('HTTP error on $_currentUrl: $e');
-      await _markCurrentUrlAsFailed();
-      return _retryCollateralSubmission(
-        clientId: clientId,
-        disbursementStartDate: disbursementStartDate,
-        disbursementEndDate: disbursementEndDate,
-        images: images,
-      );
+      return response;
     } catch (e) {
-      print('Unexpected error on $_currentUrl: $e');
-      await _markCurrentUrlAsFailed();
-      return _retryCollateralSubmission(
-        clientId: clientId,
-        disbursementStartDate: disbursementStartDate,
-        disbursementEndDate: disbursementEndDate,
-        images: images,
-      );
+      print('Collateral submission error: $e');
+      rethrow;
     }
   }
-
   // ===== FILE DOWNLOAD METHODS (NO TIMEOUT) =====
 
-  /// GET request for file downloads — no timeout, streams full response
-  Future<http.Response> getFile(String endpoint) async {
-    await initialize();
-    if (!await _checkConnectivity()) {
-      throw Exception('No internet connection available');
-    }
-    final url = '$_currentUrl$endpoint';
-    try {
-      print('Making file download request to: $url');
-      final client = http.Client();
-      try {
-        final request = http.Request('GET', Uri.parse(url));
-        request.headers['Content-Type'] = 'application/json';
-        final streamed = await client.send(request);
-        final response = await http.Response.fromStream(streamed);
-        if (response.statusCode >= 200 && response.statusCode < 300)
-          return response;
-        if (response.statusCode >= 500)
-          throw HttpException('Server error: ${response.statusCode}');
-        return response;
-      } finally {
-        client.close();
-      }
-    } on SocketException catch (e) {
-      print('Network error on file download: $e');
-      await _markCurrentUrlAsFailed();
-      return _retryGetFile(endpoint);
-    } on HttpException catch (e) {
-      print('HTTP error on file download: $e');
-      await _markCurrentUrlAsFailed();
-      return _retryGetFile(endpoint);
-    } catch (e) {
-      print('Unexpected error on file download: $e');
-      await _markCurrentUrlAsFailed();
-      return _retryGetFile(endpoint);
-    }
-  }
-
-  Future<http.Response> _retryGetFile(String endpoint) async {
-    try {
-      final url = '$_currentUrl$endpoint';
-      final client = http.Client();
-      try {
-        final request = http.Request('GET', Uri.parse(url));
-        request.headers['Content-Type'] = 'application/json';
-        final streamed = await client.send(request);
-        return await http.Response.fromStream(streamed);
-      } finally {
-        client.close();
-      }
-    } catch (e) {
-      throw Exception(
-        'Both API endpoints are currently unavailable. Please try again later.',
-      );
-    }
+  /// GET request for file downloads with Dio byte responses.
+  Future<ApiResponse> getFile(String endpoint) async {
+    return _request(
+      'GET',
+      endpoint,
+      headers: {'Content-Type': 'application/json'},
+    );
   }
 
   /// Download Branch Loan Book (Excel)
-  Future<http.Response> downloadLoanBook(String branch) async {
+  Future<ApiResponse> downloadLoanBook(String branch) async {
     return getFile(
       '/api/MemberStatement/download-branch-loanbook-excel?branch=${Uri.encodeComponent(branch)}',
     );
   }
 
   /// Download Reminder PDF
-  Future<http.Response> downloadReminderPdf(
+  Future<ApiResponse> downloadReminderPdf(
     String branchName,
     String targetDate,
   ) async {
@@ -1327,7 +1215,7 @@ class ApiService {
   }
 
   /// Download Defaulters Report (PDF)
-  Future<http.Response> downloadDefaultersReport(
+  Future<ApiResponse> downloadDefaultersReport(
     String branchName,
     String targetDate,
   ) async {
@@ -1337,14 +1225,14 @@ class ApiService {
   }
 
   /// Download Loan Book Analysis (Excel) — Accounts/Management only
-  Future<http.Response> downloadLoanBookAnalysis(String targetDate) async {
+  Future<ApiResponse> downloadLoanBookAnalysis(String targetDate) async {
     return getFile(
       '/api/LoanBookAnalysis/GenerateLoanBookVarianceAnalysis?targetDate=${Uri.encodeComponent(targetDate)}',
     );
   }
 
   /// Download Consolidated Income by Branch (Excel) — Accounts/Management only
-  Future<http.Response> downloadConsolidatedBranch(
+  Future<ApiResponse> downloadConsolidatedBranch(
     String startDate,
     String endDate,
   ) async {
@@ -1354,7 +1242,7 @@ class ApiService {
   }
 
   /// Download Consolidated Income by Day (Excel) — Accounts/Management only
-  Future<http.Response> downloadConsolidatedDay(
+  Future<ApiResponse> downloadConsolidatedDay(
     String startDate,
     String endDate,
   ) async {
@@ -1364,7 +1252,7 @@ class ApiService {
   }
 
   /// Download Daily Income (Excel) — Accounts/Management only
-  Future<http.Response> downloadDailyIncome(
+  Future<ApiResponse> downloadDailyIncome(
     String startDate,
     String endDate,
   ) async {
@@ -1373,34 +1261,10 @@ class ApiService {
     );
   }
 
-  /// Retry collateral submission (only once)
-  Future<http.Response> _retryCollateralSubmission({
-    required String clientId,
-    required String disbursementStartDate,
-    required String disbursementEndDate,
-    required List<Map<String, dynamic>> images,
-  }) async {
-    try {
-      print(
-        'Retrying collateral submission with alternative URL: $_currentUrl',
-      );
-      return await submitCollateralDocuments(
-        clientId: clientId,
-        disbursementStartDate: disbursementStartDate,
-        disbursementEndDate: disbursementEndDate,
-        images: images,
-      );
-    } catch (e) {
-      throw Exception(
-        'Both API endpoints are currently unavailable. Please try again later.',
-      );
-    }
-  }
-
   // ===== MEMBER STATEMENT METHODS =====
 
   /// Get client balance summary (TotalBalance + loan summaries)
-  Future<http.Response> getClientBalance(String clientId) async {
+  Future<ApiResponse> getClientBalance(String clientId) async {
     try {
       final response = await get(
         '/api/MemberStatement/get-client-balance/${Uri.encodeComponent(clientId)}',
@@ -1414,7 +1278,7 @@ class ApiService {
   }
 
   /// Download member statement PDF for a client
-  Future<http.Response> downloadClientStatementPdf(String clientId) async {
+  Future<ApiResponse> downloadClientStatementPdf(String clientId) async {
     return getFile(
       '/api/MemberStatement/download-member-statement-pdf/${Uri.encodeComponent(clientId)}',
     );

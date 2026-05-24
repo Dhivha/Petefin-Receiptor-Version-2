@@ -1117,7 +1117,7 @@ class DatabaseHelper {
 
     if (oldVersion < 15) {
       // Add collateral submission features in version 15
-      
+
       // Create collateral submissions table
       await db.execute('''
         CREATE TABLE $_collateralSubmissionsTable (
@@ -1556,7 +1556,9 @@ class DatabaseHelper {
   }
 
   // Collateral Submission operations
-  Future<int> insertQueuedCollateralSubmission(Map<String, dynamic> submissionData) async {
+  Future<int> insertQueuedCollateralSubmission(
+    Map<String, dynamic> submissionData,
+  ) async {
     final db = await database;
     return await db.insert(
       _queuedCollateralSubmissionsTable,
@@ -1573,7 +1575,9 @@ class DatabaseHelper {
     );
   }
 
-  Future<List<Map<String, dynamic>>> getQueuedCollateralSubmissionsByStatus(String status) async {
+  Future<List<Map<String, dynamic>>> getQueuedCollateralSubmissionsByStatus(
+    String status,
+  ) async {
     final db = await database;
     return await db.query(
       _queuedCollateralSubmissionsTable,
@@ -1677,7 +1681,9 @@ class DatabaseHelper {
     );
   }
 
-  Future<List<Map<String, dynamic>>> getCollateralSubmissionsByClientId(String clientId) async {
+  Future<List<Map<String, dynamic>>> getCollateralSubmissionsByClientId(
+    String clientId,
+  ) async {
     final db = await database;
     return await db.query(
       _collateralSubmissionsTable,
@@ -2019,7 +2025,7 @@ class DatabaseHelper {
     return await db.update(
       _repaymentTable,
       updateData,
-      where: 'receiptNumber = ?',
+      where: 'receiptNumber = ? AND isSynced = 0',
       whereArgs: [receiptNumber],
     );
   }
@@ -3924,10 +3930,6 @@ class DatabaseHelper {
 
   Future<void> deleteBranchDownload(int id) async {
     final db = await database;
-    await db.delete(
-      _branchDownloadsTable,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.delete(_branchDownloadsTable, where: 'id = ?', whereArgs: [id]);
   }
 }

@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:http/http.dart' as http;
+import 'api_response.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import '../models/branch_download.dart';
@@ -26,7 +26,7 @@ class BranchDownloadService {
     required String displayTitle,
     required String parametersSummary,
     required String fileType,
-    required Future<http.Response> Function() apiFn,
+    required Future<ApiResponse> Function() apiFn,
   }) async {
     final now = DateTime.now();
     final expiresAt = now.add(const Duration(hours: 12));
@@ -53,7 +53,7 @@ class BranchDownloadService {
   Future<void> _performDownload(
     int id,
     String fileType,
-    Future<http.Response> Function() apiFn,
+    Future<ApiResponse> Function() apiFn,
   ) async {
     try {
       print('[BranchDownload] id=$id starting download…');
@@ -62,7 +62,10 @@ class BranchDownloadService {
 
       if (response.statusCode >= 200 && response.statusCode < 300) {
         if (response.bodyBytes.isEmpty) {
-          await _db.updateBranchDownloadFailed(id, 'Server returned empty file');
+          await _db.updateBranchDownloadFailed(
+            id,
+            'Server returned empty file',
+          );
           return;
         }
         final filePath = await _saveFile(response.bodyBytes, fileType, id);
@@ -115,4 +118,3 @@ class BranchDownloadService {
     await _db.deleteBranchDownload(id);
   }
 }
-

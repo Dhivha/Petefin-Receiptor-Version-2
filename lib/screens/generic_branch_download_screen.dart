@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:open_file/open_file.dart';
-import 'package:http/http.dart' as http;
+import '../services/api_response.dart';
 import '../models/branch_download.dart';
 import '../services/branch_download_service.dart';
 
@@ -14,7 +14,7 @@ class DownloadParamConfig {
   final String title;
   final String fileType;
   final DownloadInputType paramType;
-  final Future<http.Response> Function(Map<String, String> params) apiCall;
+  final Future<ApiResponse> Function(Map<String, String> params) apiCall;
   final String Function(Map<String, String> params) summaryBuilder;
 
   const DownloadParamConfig({
@@ -42,7 +42,8 @@ class GenericBranchDownloadScreen extends StatefulWidget {
 }
 
 class _GenericBranchDownloadScreenState
-    extends State<GenericBranchDownloadScreen> with SingleTickerProviderStateMixin {
+    extends State<GenericBranchDownloadScreen>
+    with SingleTickerProviderStateMixin {
   final BranchDownloadService _service = BranchDownloadService();
   late TabController _tabController;
   Timer? _refreshTimer;
@@ -80,16 +81,17 @@ class _GenericBranchDownloadScreenState
     super.dispose();
   }
 
-  bool get _hasActive =>
-      _recentDownloads.any((d) => d.isActive);
+  bool get _hasActive => _recentDownloads.any((d) => d.isActive);
 
-  int get _activeCount =>
-      _recentDownloads.where((d) => d.isActive).length;
+  int get _activeCount => _recentDownloads.where((d) => d.isActive).length;
 
   Future<void> _loadDownloads() async {
     setState(() => _isLoadingDownloads = true);
     try {
-      final list = await _service.getRecentDownloads(widget.downloadType, limit: 5);
+      final list = await _service.getRecentDownloads(
+        widget.downloadType,
+        limit: 5,
+      );
       if (mounted) setState(() => _recentDownloads = list);
     } catch (e) {
       print('Error loading downloads: $e');
@@ -98,9 +100,11 @@ class _GenericBranchDownloadScreenState
     }
   }
 
-  Future<void> _pickDate(BuildContext context,
-      {required TextEditingController ctrl,
-      required void Function(DateTime) onPicked}) async {
+  Future<void> _pickDate(
+    BuildContext context, {
+    required TextEditingController ctrl,
+    required void Function(DateTime) onPicked,
+  }) async {
     final picked = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
@@ -108,10 +112,9 @@ class _GenericBranchDownloadScreenState
       lastDate: DateTime.now().add(const Duration(days: 365)),
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
-          colorScheme: Theme.of(ctx).colorScheme.copyWith(
-                primary: Colors.blue,
-                onPrimary: Colors.white,
-              ),
+          colorScheme: Theme.of(
+            ctx,
+          ).colorScheme.copyWith(primary: Colors.blue, onPrimary: Colors.white),
         ),
         child: child!,
       ),
@@ -152,7 +155,10 @@ class _GenericBranchDownloadScreenState
         fileType: cfg.fileType,
         apiFn: () => cfg.apiCall(params),
       );
-      _snack('Download started — running in background', backgroundColor: Colors.blue);
+      _snack(
+        'Download started — running in background',
+        backgroundColor: Colors.blue,
+      );
       _clearForm();
       await _loadDownloads();
       _tabController.animateTo(1);
@@ -188,8 +194,11 @@ class _GenericBranchDownloadScreenState
       _snack('File no longer exists', isError: true);
       return;
     }
-    await Share.shareXFiles([XFile(dl.filePath!)],
-        subject: dl.displayTitle, text: dl.parametersSummary);
+    await Share.shareXFiles(
+      [XFile(dl.filePath!)],
+      subject: dl.displayTitle,
+      text: dl.parametersSummary,
+    );
   }
 
   Future<void> _deleteDownload(BranchDownload dl) async {
@@ -200,8 +209,9 @@ class _GenericBranchDownloadScreenState
         content: Text('Delete this download?\n\n${dl.parametersSummary}'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
@@ -218,19 +228,27 @@ class _GenericBranchDownloadScreenState
   }
 
   void _snack(String msg, {bool isError = false, Color? backgroundColor}) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: backgroundColor ?? (isError ? Colors.red : Colors.green),
-      duration: Duration(seconds: isError ? 4 : 3),
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor:
+            backgroundColor ?? (isError ? Colors.red : Colors.green),
+        duration: Duration(seconds: isError ? 4 : 3),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.config.title,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: Text(
+          widget.config.title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         backgroundColor: Colors.blue,
         iconTheme: const IconThemeData(color: Colors.white),
         bottom: TabBar(
@@ -274,9 +292,10 @@ class _GenericBranchDownloadScreenState
                     Text(
                       cfg.title,
                       style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue),
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue,
+                      ),
                     ),
                     const SizedBox(height: 16),
 
@@ -285,19 +304,29 @@ class _GenericBranchDownloadScreenState
                       TextFormField(
                         controller: _targetDateCtrl,
                         readOnly: true,
-                        onTap: () => _pickDate(context,
-                            ctrl: _targetDateCtrl,
-                            onPicked: (d) => setState(() => _targetDate = d)),
+                        onTap: () => _pickDate(
+                          context,
+                          ctrl: _targetDateCtrl,
+                          onPicked: (d) => setState(() => _targetDate = d),
+                        ),
                         decoration: InputDecoration(
                           labelText: 'Target Date',
                           hintText: 'Select date',
-                          prefixIcon: const Icon(Icons.calendar_today, color: Colors.blue),
+                          prefixIcon: const Icon(
+                            Icons.calendar_today,
+                            color: Colors.blue,
+                          ),
                           border: const OutlineInputBorder(),
                           focusedBorder: const OutlineInputBorder(
-                              borderSide: BorderSide(color: Colors.blue, width: 2)),
+                            borderSide: BorderSide(
+                              color: Colors.blue,
+                              width: 2,
+                            ),
+                          ),
                         ),
-                        validator: (v) =>
-                            (v == null || v.isEmpty) ? 'Please select a date' : null,
+                        validator: (v) => (v == null || v.isEmpty)
+                            ? 'Please select a date'
+                            : null,
                       ),
                     ],
 
@@ -306,37 +335,57 @@ class _GenericBranchDownloadScreenState
                       TextFormField(
                         controller: _startDateCtrl,
                         readOnly: true,
-                        onTap: () => _pickDate(context,
-                            ctrl: _startDateCtrl,
-                            onPicked: (d) => setState(() => _startDate = d)),
+                        onTap: () => _pickDate(
+                          context,
+                          ctrl: _startDateCtrl,
+                          onPicked: (d) => setState(() => _startDate = d),
+                        ),
                         decoration: InputDecoration(
                           labelText: 'Start Date',
                           hintText: 'Select start date',
-                          prefixIcon: const Icon(Icons.calendar_today, color: Colors.blue),
+                          prefixIcon: const Icon(
+                            Icons.calendar_today,
+                            color: Colors.blue,
+                          ),
                           border: const OutlineInputBorder(),
                           focusedBorder: const OutlineInputBorder(
-                              borderSide: BorderSide(color: Colors.blue, width: 2)),
+                            borderSide: BorderSide(
+                              color: Colors.blue,
+                              width: 2,
+                            ),
+                          ),
                         ),
-                        validator: (v) =>
-                            (v == null || v.isEmpty) ? 'Please select start date' : null,
+                        validator: (v) => (v == null || v.isEmpty)
+                            ? 'Please select start date'
+                            : null,
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _endDateCtrl,
                         readOnly: true,
-                        onTap: () => _pickDate(context,
-                            ctrl: _endDateCtrl,
-                            onPicked: (d) => setState(() => _endDate = d)),
+                        onTap: () => _pickDate(
+                          context,
+                          ctrl: _endDateCtrl,
+                          onPicked: (d) => setState(() => _endDate = d),
+                        ),
                         decoration: InputDecoration(
                           labelText: 'End Date',
                           hintText: 'Select end date',
-                          prefixIcon: const Icon(Icons.calendar_today, color: Colors.blue),
+                          prefixIcon: const Icon(
+                            Icons.calendar_today,
+                            color: Colors.blue,
+                          ),
                           border: const OutlineInputBorder(),
                           focusedBorder: const OutlineInputBorder(
-                              borderSide: BorderSide(color: Colors.blue, width: 2)),
+                            borderSide: BorderSide(
+                              color: Colors.blue,
+                              width: 2,
+                            ),
+                          ),
                         ),
-                        validator: (v) =>
-                            (v == null || v.isEmpty) ? 'Please select end date' : null,
+                        validator: (v) => (v == null || v.isEmpty)
+                            ? 'Please select end date'
+                            : null,
                       ),
                     ],
 
@@ -351,7 +400,11 @@ class _GenericBranchDownloadScreenState
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.info, color: Colors.blue, size: 18),
+                            const Icon(
+                              Icons.info,
+                              color: Colors.blue,
+                              size: 18,
+                            ),
                             const SizedBox(width: 8),
                             Text(
                               'Download will use your current branch',
@@ -372,20 +425,26 @@ class _GenericBranchDownloadScreenState
                                 width: 20,
                                 height: 20,
                                 child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation(Colors.white)))
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation(
+                                    Colors.white,
+                                  ),
+                                ),
+                              )
                             : const Icon(Icons.download, color: Colors.white),
                         label: Text(
                           _isDownloading ? 'Starting Download...' : 'Download',
                           style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white),
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.blue,
                           shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8)),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
                       ),
                     ),
@@ -402,15 +461,20 @@ class _GenericBranchDownloadScreenState
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(children: [
-                      const Icon(Icons.info, color: Colors.blue),
-                      const SizedBox(width: 8),
-                      const Text('Download Information',
+                    Row(
+                      children: [
+                        const Icon(Icons.info, color: Colors.blue),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Download Information',
                           style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue)),
-                    ]),
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue,
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 12),
                     Text(
                       '• Downloads run in the background — you can leave this screen\n'
@@ -419,7 +483,10 @@ class _GenericBranchDownloadScreenState
                       '• Downloads auto-delete after 12 hours\n'
                       '• File type: ${cfg.fileType.toUpperCase()}',
                       style: TextStyle(
-                          fontSize: 14, color: Colors.blue[700], height: 1.5),
+                        fontSize: 14,
+                        color: Colors.blue[700],
+                        height: 1.5,
+                      ),
                     ),
                   ],
                 ),
@@ -448,20 +515,26 @@ class _GenericBranchDownloadScreenState
                     width: 20,
                     height: 20,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation(Colors.blue)),
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation(Colors.blue),
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       '$_activeCount download${_activeCount == 1 ? "" : "s"} in progress...',
                       style: TextStyle(
-                          color: Colors.blue[700], fontWeight: FontWeight.w600),
+                        color: Colors.blue[700],
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                   TextButton(
                     onPressed: _loadDownloads,
-                    child: const Text('Refresh', style: TextStyle(color: Colors.blue)),
+                    child: const Text(
+                      'Refresh',
+                      style: TextStyle(color: Colors.blue),
+                    ),
                   ),
                 ],
               ),
@@ -479,31 +552,40 @@ class _GenericBranchDownloadScreenState
                     ),
                   )
                 : _recentDownloads.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.file_download,
-                                size: 64, color: Colors.grey[400]),
-                            const SizedBox(height: 16),
-                            Text('No downloads yet',
-                                style: TextStyle(
-                                    fontSize: 18, color: Colors.grey[600])),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Tap New Download to get started',
-                              style: TextStyle(
-                                  fontSize: 14, color: Colors.grey[500]),
-                            ),
-                          ],
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.file_download,
+                          size: 64,
+                          color: Colors.grey[400],
                         ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: _recentDownloads.length,
-                        itemBuilder: (ctx, i) =>
-                            _buildDownloadCard(_recentDownloads[i]),
-                      ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No downloads yet',
+                          style: TextStyle(
+                            fontSize: 18,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Tap New Download to get started',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[500],
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _recentDownloads.length,
+                    itemBuilder: (ctx, i) =>
+                        _buildDownloadCard(_recentDownloads[i]),
+                  ),
           ),
         ],
       ),
@@ -555,47 +637,56 @@ class _GenericBranchDownloadScreenState
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation(statusColor)),
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation(statusColor),
+                      ),
                     ),
                   ),
                 Icon(statusIcon, color: statusColor, size: 20),
                 const SizedBox(width: 8),
-                Text(statusText,
-                    style: TextStyle(
-                        color: statusColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14)),
+                Text(
+                  statusText,
+                  style: TextStyle(
+                    color: statusColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
                 const Spacer(),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: dl.fileType == 'pdf'
                         ? Colors.red[50]
                         : Colors.green[50],
                     borderRadius: BorderRadius.circular(4),
                     border: Border.all(
-                        color: dl.fileType == 'pdf'
-                            ? Colors.red[200]!
-                            : Colors.green[200]!),
+                      color: dl.fileType == 'pdf'
+                          ? Colors.red[200]!
+                          : Colors.green[200]!,
+                    ),
                   ),
                   child: Text(
                     dl.fileType.toUpperCase(),
                     style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: dl.fileType == 'pdf'
-                            ? Colors.red[700]
-                            : Colors.green[700]),
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: dl.fileType == 'pdf'
+                          ? Colors.red[700]
+                          : Colors.green[700],
+                    ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            Text(dl.parametersSummary,
-                style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w600)),
+            Text(
+              dl.parametersSummary,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 4),
             Text(
               'Requested: ${DateFormat('dd/MM/yyyy HH:mm').format(dl.requestedAt)}',
@@ -623,9 +714,10 @@ class _GenericBranchDownloadScreenState
                   borderRadius: BorderRadius.circular(4),
                   border: Border.all(color: Colors.red[200]!),
                 ),
-                child: Text('Error: ${dl.errorMessage}',
-                    style:
-                        TextStyle(fontSize: 12, color: Colors.red[700])),
+                child: Text(
+                  'Error: ${dl.errorMessage}',
+                  style: TextStyle(fontSize: 12, color: Colors.red[700]),
+                ),
               ),
             ],
             const SizedBox(height: 16),
@@ -635,36 +727,52 @@ class _GenericBranchDownloadScreenState
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: () => _openFile(dl),
-                      icon: const Icon(Icons.open_in_new,
-                          size: 16, color: Colors.white),
-                      label: const Text('Open',
-                          style: TextStyle(color: Colors.white)),
+                      icon: const Icon(
+                        Icons.open_in_new,
+                        size: 16,
+                        color: Colors.white,
+                      ),
+                      label: const Text(
+                        'Open',
+                        style: TextStyle(color: Colors.white),
+                      ),
                       style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                          minimumSize: const Size(0, 36)),
+                        backgroundColor: Colors.blue,
+                        minimumSize: const Size(0, 36),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: () => _shareFile(dl),
-                      icon: const Icon(Icons.share,
-                          size: 16, color: Colors.white),
-                      label: const Text('Share',
-                          style: TextStyle(color: Colors.white)),
+                      icon: const Icon(
+                        Icons.share,
+                        size: 16,
+                        color: Colors.white,
+                      ),
+                      label: const Text(
+                        'Share',
+                        style: TextStyle(color: Colors.white),
+                      ),
                       style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue[700],
-                          minimumSize: const Size(0, 36)),
+                        backgroundColor: Colors.blue[700],
+                        minimumSize: const Size(0, 36),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   ElevatedButton(
                     onPressed: () => _deleteDownload(dl),
                     style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                        minimumSize: const Size(36, 36)),
-                    child: const Icon(Icons.delete,
-                        size: 16, color: Colors.white),
+                      backgroundColor: Colors.red,
+                      minimumSize: const Size(36, 36),
+                    ),
+                    child: const Icon(
+                      Icons.delete,
+                      size: 16,
+                      color: Colors.white,
+                    ),
                   ),
                 ],
               )
@@ -675,10 +783,14 @@ class _GenericBranchDownloadScreenState
                   ElevatedButton(
                     onPressed: () => _deleteDownload(dl),
                     style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                        minimumSize: const Size(36, 36)),
-                    child: const Icon(Icons.delete,
-                        size: 16, color: Colors.white),
+                      backgroundColor: Colors.red,
+                      minimumSize: const Size(36, 36),
+                    ),
+                    child: const Icon(
+                      Icons.delete,
+                      size: 16,
+                      color: Colors.white,
+                    ),
                   ),
                 ],
               ),
@@ -688,4 +800,3 @@ class _GenericBranchDownloadScreenState
     );
   }
 }
-
