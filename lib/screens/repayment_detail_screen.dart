@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+
 import '../models/client.dart';
 import '../models/disbursement.dart';
 import '../models/repayment.dart';
@@ -17,13 +18,17 @@ class RepaymentDetailScreen extends StatefulWidget {
   });
 
   @override
-  State<RepaymentDetailScreen> createState() => _RepaymentDetailScreenState();
+  State<RepaymentDetailScreen> createState() =>
+      _RepaymentDetailScreenState();
 }
 
-class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
+class _RepaymentDetailScreenState
+    extends State<RepaymentDetailScreen> {
   final AuthService _authService = AuthService();
+
   List<Disbursement> _disbursements = [];
   List<Repayment> _repayments = [];
+
   bool _isLoading = true;
   bool _isRefreshing = false;
 
@@ -39,30 +44,34 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
         _isLoading = true;
       });
 
-      // Load disbursements and repayments in parallel
       final results = await Future.wait([
-        _authService.getClientDisbursements(widget.client.clientId),
-        _authService.getClientRepayments(widget.client.clientId),
+        _authService.getClientDisbursements(
+          widget.client.clientId,
+        ),
+        _authService.getClientRepayments(
+          widget.client.clientId,
+        ),
       ]);
 
       _disbursements = results[0] as List<Disbursement>;
       _repayments = results[1] as List<Repayment>;
 
+      if (!mounted) return;
+
       setState(() {
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
+
       setState(() {
         _isLoading = false;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading data: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+
+      _showSnack(
+        'Error loading data: $e',
+        Colors.red,
+      );
     }
   }
 
@@ -72,229 +81,401 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
     });
 
     try {
-      // Try to sync disbursements from server
-      final result = await _authService.syncDisbursementsForClient(
+      final result = await _authService
+          .syncDisbursementsForClient(
         widget.client.clientId,
       );
-      if (result.success) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('✅ ${result.message}'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('⚠️ ${result.message}'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-      }
 
-      // Reload local data
+      if (!mounted) return;
+
+      _showSnack(
+        result.success
+            ? '✅ ${result.message}'
+            : '⚠️ ${result.message}',
+        result.success
+            ? Colors.green
+            : Colors.orange,
+      );
+
       await _loadData();
     } catch (e) {
       await _loadData();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error refreshing: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+
+      if (!mounted) return;
+
+      _showSnack(
+        'Error refreshing: $e',
+        Colors.red,
+      );
     } finally {
-      setState(() {
-        _isRefreshing = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isRefreshing = false;
+        });
+      }
     }
   }
 
-  Future<bool> _printSavedReceipt(Repayment repayment) async {
+  void _showSnack(
+      String message,
+      Color color,
+      ) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: color,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
+  void _showLoadingDialog(String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      useRootNavigator: true,
+      builder: (_) {
+        return PopScope(
+          canPop: false,
+          child: AlertDialog(
+            content: Row(
+              children: [
+                const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                  ),
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Text(message),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _closeDialog() {
+    if (Navigator.of(
+      context,
+      rootNavigator: true,
+    ).canPop()) {
+      Navigator.of(
+        context,
+        rootNavigator: true,
+      ).pop();
+    }
+  }
+
+  Future<bool> _printSavedReceipt(
+      Repayment repayment,
+      ) async {
     for (var attempt = 1; attempt <= 3; attempt++) {
-      final printed = await BluetoothReceiptService.printRepaymentReceipt(
+      final printed =
+      await BluetoothReceiptService
+          .printRepaymentReceipt(
         repayment,
         clientName: widget.client.fullName,
       );
-      if (printed) return true;
-      await Future.delayed(Duration(milliseconds: 400 * attempt));
+
+      if (printed) {
+        return true;
+      }
+
+      await Future.delayed(
+        Duration(milliseconds: 400 * attempt),
+      );
     }
+
     return false;
   }
 
-  void _showRepaymentDialog(Disbursement disbursement) {
-    final amountController = TextEditingController();
+  Future<void> _processRepayment({
+    required Disbursement disbursement,
+    required double amount,
+    required DateTime paymentDate,
+  }) async {
+    try {
+      _showLoadingDialog(
+        'Saving repayment locally...',
+      );
+
+      final result = await _authService
+          .createRepaymentWithReceiptNumber(
+        disbursementId: disbursement.id,
+        clientId: widget.client.clientId,
+        amount: amount,
+        dateOfPayment: paymentDate,
+        paymentNumber: '',
+        currency: widget.currency,
+        clientName: widget.client.fullName,
+      );
+
+      _closeDialog();
+
+      if (!mounted) return;
+
+      if (!result.success ||
+          result.repayment == null) {
+        _showSnack(
+          result.message,
+          Colors.red,
+        );
+        return;
+      }
+
+      final repayment = result.repayment!;
+
+      _showLoadingDialog(
+        'Printing receipt...',
+      );
+
+      final printed =
+      await _printSavedReceipt(repayment);
+
+      _closeDialog();
+
+      if (!mounted) return;
+
+      await _loadData();
+
+      _showSuccessDialog(
+        receiptNumber:
+        result.receiptNumber ?? '',
+        printed: printed,
+      );
+    } catch (e) {
+      _closeDialog();
+
+      if (!mounted) return;
+
+      _showSnack(
+        'Error creating repayment: $e',
+        Colors.red,
+      );
+    }
+  }
+
+  void _showRepaymentDialog(
+      Disbursement disbursement,
+      ) {
+    final amountController =
+    TextEditingController();
+
     DateTime selectedDate = DateTime.now();
 
     showDialog(
       context: context,
-      builder: (BuildContext context) {
+      builder: (dialogContext) {
         return StatefulBuilder(
-          builder: (context, setModalState) {
+          builder: (
+              context,
+              setModalState,
+              ) {
             return AlertDialog(
-              title: Text('Create ${widget.currency} Repayment'),
+              title: Text(
+                'Create ${widget.currency} Repayment',
+              ),
               content: SingleChildScrollView(
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize:
+                  MainAxisSize.min,
+                  crossAxisAlignment:
+                  CrossAxisAlignment.start,
                   children: [
-                    Text('Client: ${widget.client.fullName}'),
-                    Text('Disbursement ID: ${disbursement.id}'),
-                    Text(
-                      'Product: ${disbursement.productName?.trim().isNotEmpty == true ? disbursement.productName : 'N/A'}',
+                    _infoRow(
+                      'Client',
+                      widget.client.fullName,
                     ),
-                    Text('Currency: ${widget.currency}'),
+                    _infoRow(
+                      'Disbursement',
+                      disbursement.id.toString(),
+                    ),
+                    _infoRow(
+                      'Product',
+                      disbursement
+                          .productName
+                          ?.trim()
+                          .isNotEmpty ==
+                          true
+                          ? disbursement
+                          .productName!
+                          : 'N/A',
+                    ),
+                    _infoRow(
+                      'Currency',
+                      widget.currency,
+                    ),
                     const SizedBox(height: 16),
                     TextField(
-                      controller: amountController,
-                      decoration: const InputDecoration(
-                        labelText: 'Repayment Amount',
-                        prefixIcon: Icon(Icons.attach_money),
-                        border: OutlineInputBorder(),
+                      controller:
+                      amountController,
+                      autofocus: true,
+                      decoration:
+                      InputDecoration(
+                        labelText:
+                        'Repayment Amount',
+                        prefixIcon:
+                        const Icon(
+                          Icons.attach_money,
+                        ),
+                        border:
+                        OutlineInputBorder(
+                          borderRadius:
+                          BorderRadius.circular(
+                            12,
+                          ),
+                        ),
                       ),
-                      keyboardType: const TextInputType.numberWithOptions(
+                      keyboardType:
+                      const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
                     ),
                     const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        const Icon(Icons.calendar_today),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Date: ${DateFormat('yyyy-MM-dd').format(selectedDate)}',
-                            style: const TextStyle(fontSize: 16),
+                    Container(
+                      padding:
+                      const EdgeInsets.all(
+                        12,
+                      ),
+                      decoration:
+                      BoxDecoration(
+                        borderRadius:
+                        BorderRadius.circular(
+                          12,
+                        ),
+                        color: Colors
+                            .grey.shade100,
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons
+                                .calendar_today,
                           ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.edit),
-                          onPressed: () async {
-                            final pickedDate = await showDatePicker(
-                              context: context,
-                              initialDate: selectedDate,
-                              firstDate: DateTime(2000),
-                              lastDate: DateTime.now().add(
-                                const Duration(days: 1),
+                          const SizedBox(
+                            width: 12,
+                          ),
+                          Expanded(
+                            child: Text(
+                              DateFormat(
+                                'yyyy-MM-dd',
+                              ).format(
+                                selectedDate,
                               ),
-                            );
-                            if (pickedDate != null) {
-                              setModalState(() {
-                                selectedDate = pickedDate;
-                              });
-                            }
-                          },
-                        ),
-                      ],
+                              style:
+                              const TextStyle(
+                                fontSize: 16,
+                                fontWeight:
+                                FontWeight
+                                    .w600,
+                              ),
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed:
+                                () async {
+                              final pickedDate =
+                              await showDatePicker(
+                                context:
+                                context,
+                                initialDate:
+                                selectedDate,
+                                firstDate:
+                                DateTime(
+                                  2000,
+                                ),
+                                lastDate:
+                                DateTime
+                                    .now()
+                                    .add(
+                                  const Duration(
+                                    days: 1,
+                                  ),
+                                ),
+                              );
+
+                              if (pickedDate !=
+                                  null) {
+                                setModalState(
+                                      () {
+                                    selectedDate =
+                                        pickedDate;
+                                  },
+                                );
+                              }
+                            },
+                            icon: const Icon(
+                              Icons.edit,
+                            ),
+                            label: const Text(
+                              'Change',
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
+                  onPressed: () {
+                    Navigator.of(
+                      dialogContext,
+                    ).pop();
+                  },
+                  child: const Text(
+                    'Cancel',
+                  ),
                 ),
-                ElevatedButton(
+                ElevatedButton.icon(
+                  icon: const Icon(
+                    Icons.payment,
+                  ),
+                  label: const Text(
+                    'Save & Print',
+                  ),
                   onPressed: () async {
-                    final amount = double.tryParse(amountController.text);
+                    final amount =
+                    double.tryParse(
+                      amountController.text
+                          .trim(),
+                    );
 
-                    if (amount == null || amount <= 0) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Please enter a valid amount'),
-                          backgroundColor: Colors.red,
-                        ),
+                    if (amount == null ||
+                        amount <= 0) {
+                      _showSnack(
+                        'Please enter a valid amount',
+                        Colors.red,
                       );
                       return;
                     }
 
-                    // Close dialog first
-                    Navigator.of(context).pop();
+                    Navigator.of(
+                      dialogContext,
+                    ).pop();
 
-                    // Show loading dialog
-                    showDialog(
-                      context: context,
-                      barrierDismissible: false,
-                      builder: (BuildContext context) {
-                        return const AlertDialog(
-                          content: Row(
-                            children: [
-                              CircularProgressIndicator(),
-                              SizedBox(width: 20),
-                              Text('Saving repayment locally...'),
-                            ],
-                          ),
-                        );
-                      },
+                    await Future.delayed(
+                      const Duration(
+                        milliseconds: 150,
+                      ),
                     );
 
-                    try {
-                      final result = await _authService
-                          .createRepaymentWithReceiptNumber(
-                            disbursementId: disbursement.id,
-                            clientId: widget.client.clientId,
-                            amount: amount,
-                            dateOfPayment: selectedDate,
-                            paymentNumber: '',
-                            currency: widget.currency,
-                            clientName: widget.client.fullName,
-                      );
-
-                      // Close loading dialog
-                      if (!context.mounted) return;
-                      Navigator.of(context).pop();
-
-                      if (result.success) {
-                        var printed = false;
-                        if (result.repayment != null) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Repayment saved locally. Printing receipt...',
-                              ),
-                              backgroundColor: Colors.blue,
-                              duration: Duration(seconds: 2),
-                            ),
-                          );
-                          printed = await _printSavedReceipt(result.repayment!);
-                        }
-                        if (!context.mounted) return;
-
-                        // Show success dialog with receipt number
-                        _showSuccessDialog(
-                          result.receiptNumber!,
-                          printed: printed,
-                        );
-                        // Reload data to show new repayment
-                        _loadData();
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Error: ${result.message}'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    } catch (e) {
-                      // Close loading dialog
-                      if (!context.mounted) return;
-                      Navigator.of(context).pop();
-
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Error creating repayment: $e'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    }
+                    await _processRepayment(
+                      disbursement:
+                      disbursement,
+                      amount: amount,
+                      paymentDate:
+                      selectedDate,
+                    );
                   },
-                  child: const Text('Create Repayment'),
                 ),
               ],
             );
@@ -304,75 +485,153 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
     );
   }
 
-  void _showSuccessDialog(String receiptNumber, {required bool printed}) {
+  Widget _infoRow(
+      String title,
+      String value,
+      ) {
+    return Padding(
+      padding:
+      const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment:
+        CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 110,
+            child: Text(
+              '$title:',
+              style: const TextStyle(
+                fontWeight:
+                FontWeight.bold,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(value),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSuccessDialog({
+    required String receiptNumber,
+    required bool printed,
+  }) {
     showDialog(
       context: context,
-      builder: (BuildContext context) {
+      builder: (_) {
         return AlertDialog(
-          title: const Row(
+          shape: RoundedRectangleBorder(
+            borderRadius:
+            BorderRadius.circular(20),
+          ),
+          title: Row(
             children: [
-              Icon(Icons.check_circle, color: Colors.green),
-              SizedBox(width: 8),
-              Text('Saved'),
+              Icon(
+                printed
+                    ? Icons.check_circle
+                    : Icons.warning_amber,
+                color: printed
+                    ? Colors.green
+                    : Colors.orange,
+              ),
+              const SizedBox(width: 10),
+              Text(
+                printed
+                    ? 'Completed'
+                    : 'Saved',
+              ),
             ],
           ),
           content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize:
+            MainAxisSize.min,
+            crossAxisAlignment:
+            CrossAxisAlignment.start,
             children: [
-              const Text('Repayment saved locally.'),
+              Text(
+                printed
+                    ? 'Repayment saved and receipt printed successfully.'
+                    : 'Repayment saved locally but receipt printing failed.',
+              ),
               const SizedBox(height: 16),
               Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey.shade300),
+                width: double.infinity,
+                padding:
+                const EdgeInsets.all(
+                  14,
+                ),
+                decoration:
+                BoxDecoration(
+                  color:
+                  Colors.grey.shade100,
+                  borderRadius:
+                  BorderRadius.circular(
+                    12,
+                  ),
+                  border: Border.all(
+                    color: Colors
+                        .grey.shade300,
+                  ),
                 ),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment:
+                  CrossAxisAlignment
+                      .start,
                   children: [
                     const Text(
-                      'Receipt Number:',
-                      style: TextStyle(fontWeight: FontWeight.bold),
+                      'Receipt Number',
+                      style: TextStyle(
+                        fontWeight:
+                        FontWeight
+                            .bold,
+                      ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(
+                      height: 6,
+                    ),
                     Text(
                       receiptNumber,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontFamily: 'monospace',
-                        color: Colors.blue,
+                      style:
+                      const TextStyle(
+                        fontSize: 20,
+                        fontFamily:
+                        'monospace',
+                        fontWeight:
+                        FontWeight.bold,
+                        color:
+                        Colors.blue,
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               _buildStatusLine(
-                icon: Icons.check_circle,
+                icon: Icons.save,
                 color: Colors.green,
                 text: 'Saved locally',
               ),
               const SizedBox(height: 8),
               _buildStatusLine(
-                icon: printed ? Icons.print : Icons.print_disabled,
-                color: printed ? Colors.green : Colors.orange,
+                icon: printed
+                    ? Icons.print
+                    : Icons.print_disabled,
+                color: printed
+                    ? Colors.green
+                    : Colors.orange,
                 text: printed
-                    ? 'Receipt printed'
-                    : 'Receipt not printed. Check printer connection.',
-              ),
-              const SizedBox(height: 8),
-              _buildStatusLine(
-                icon: Icons.cloud_queue,
-                color: Colors.orange,
-                text: 'Will sync once online. Synced receipts are skipped.',
+                    ? 'Receipt printed successfully'
+                    : 'Printer unavailable or disconnected',
               ),
             ],
           ),
           actions: [
             ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () {
+                Navigator.pop(context);
+              },
               child: const Text('OK'),
             ),
           ],
@@ -387,24 +646,39 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
     required String text,
   }) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment:
+      CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: color, size: 18),
+        Icon(
+          icon,
+          color: color,
+          size: 18,
+        ),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
             text,
-            style: TextStyle(color: color, fontWeight: FontWeight.w600),
+            style: TextStyle(
+              color: color,
+              fontWeight:
+              FontWeight.w600,
+            ),
           ),
         ),
       ],
     );
   }
 
-  String _formatCurrency(double amount) {
-    final formatter = NumberFormat.currency(
-      symbol: widget.currency == 'USD' ? '\$' : 'ZWG',
+  String _formatCurrency(
+      double amount,
+      ) {
+    final formatter =
+    NumberFormat.currency(
+      symbol: widget.currency == 'USD'
+          ? '\$'
+          : 'ZWG ',
     );
+
     return formatter.format(amount);
   }
 
@@ -412,255 +686,441 @@ class _RepaymentDetailScreenState extends State<RepaymentDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('${widget.currency} Repayments'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        title: Text(
+          '${widget.currency} Repayments',
+        ),
+        backgroundColor:
+        Theme.of(context)
+            .colorScheme
+            .inversePrimary,
         actions: [
           IconButton(
+            tooltip: 'Refresh',
+            onPressed: _isRefreshing
+                ? null
+                : _refreshData,
             icon: _isRefreshing
                 ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.refresh),
-            onPressed: _isRefreshing ? null : _refreshData,
-            tooltip: 'Refresh Data',
+              width: 20,
+              height: 20,
+              child:
+              CircularProgressIndicator(
+                strokeWidth: 2,
+              ),
+            )
+                : const Icon(
+              Icons.refresh,
+            ),
           ),
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
+          ? const Center(
+        child:
+        CircularProgressIndicator(),
+      )
+          : RefreshIndicator(
+        onRefresh: _refreshData,
+        child: ListView(
+          padding:
+          const EdgeInsets.all(
+            16,
+          ),
+          children: [
+            Card(
+              shape:
+              RoundedRectangleBorder(
+                borderRadius:
+                BorderRadius.circular(
+                  16,
+                ),
+              ),
               child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                padding:
+                const EdgeInsets.all(
+                  16,
+                ),
+                child: Row(
                   children: [
-                    // Client Info Card
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                CircleAvatar(
-                                  backgroundColor: Theme.of(
-                                    context,
-                                  ).primaryColor,
-                                  child: Text(
-                                    widget.client.fullName.isNotEmpty
-                                        ? widget.client.fullName[0]
-                                              .toUpperCase()
-                                        : '?',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        widget.client.fullName,
-                                        style: const TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      Text('ID: ${widget.client.clientId}'),
-                                      Text('Currency: ${widget.currency}'),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                    CircleAvatar(
+                      radius: 28,
+                      backgroundColor:
+                      Theme.of(
+                        context,
+                      ).primaryColor,
+                      child: Text(
+                        widget.client
+                            .fullName
+                            .isNotEmpty
+                            ? widget
+                            .client
+                            .fullName[0]
+                            .toUpperCase()
+                            : '?',
+                        style:
+                        const TextStyle(
+                          color:
+                          Colors
+                              .white,
+                          fontSize:
+                          22,
+                          fontWeight:
+                          FontWeight
+                              .bold,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
-
-                    // Disbursements Section
-                    const Text(
-                      'Disbursements',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    const SizedBox(
+                      width: 14,
                     ),
-                    const SizedBox(height: 8),
-                    _disbursements.isEmpty
-                        ? Card(
-                            child: Padding(
-                              padding: const EdgeInsets.all(32.0),
-                              child: Column(
-                                children: [
-                                  const Icon(
-                                    Icons.account_balance_wallet_outlined,
-                                    size: 48,
-                                    color: Colors.grey,
-                                  ),
-                                  const SizedBox(height: 16),
-                                  const Text('No disbursements found'),
-                                  const SizedBox(height: 8),
-                                  TextButton(
-                                    onPressed: _refreshData,
-                                    child: const Text('Tap to refresh'),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          )
-                        : Column(
-                            children: _disbursements.map((disbursement) {
-                              return Card(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                child: ListTile(
-                                  leading: const Icon(
-                                    Icons.account_balance_wallet,
-                                    color: Colors.blue,
-                                  ),
-                                  title: Text('ID: ${disbursement.id}'),
-                                  subtitle: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Product: ${disbursement.productName?.trim().isNotEmpty == true ? disbursement.productName : 'N/A'}',
-                                      ),
-                                      Text(
-                                        'Amount: ${_formatCurrency(disbursement.amount)}',
-                                      ),
-                                      Text(
-                                        'Date: ${DateFormat('yyyy-MM-dd').format(disbursement.dateOfDisbursement)}',
-                                      ),
-                                    ],
-                                  ),
-                                  trailing: ElevatedButton.icon(
-                                    icon: const Icon(Icons.payment, size: 16),
-                                    label: const Text('Pay'),
-                                    onPressed: () =>
-                                        _showRepaymentDialog(disbursement),
-                                  ),
-                                  isThreeLine: true,
-                                ),
-                              );
-                            }).toList(),
-                          ),
-
-                    const SizedBox(height: 24),
-
-                    // Repayments Section
-                    Row(
-                      children: [
-                        const Text(
-                          'Repayments',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const Spacer(),
-                        if (_repayments.isNotEmpty)
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment:
+                        CrossAxisAlignment
+                            .start,
+                        children: [
                           Text(
-                            '${_repayments.length} records',
-                            style: const TextStyle(color: Colors.grey),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    _repayments.isEmpty
-                        ? const Card(
-                            child: Padding(
-                              padding: EdgeInsets.all(32.0),
-                              child: Column(
-                                children: [
-                                  Icon(
-                                    Icons.receipt_long_outlined,
-                                    size: 48,
-                                    color: Colors.grey,
-                                  ),
-                                  SizedBox(height: 16),
-                                  Text('No repayments made yet'),
-                                ],
-                              ),
+                            widget.client
+                                .fullName,
+                            style:
+                            const TextStyle(
+                              fontSize:
+                              18,
+                              fontWeight:
+                              FontWeight
+                                  .bold,
                             ),
-                          )
-                        : Column(
-                            children: _repayments.map((repayment) {
-                              final isUSD = repayment.currency == 'USD';
-                              final isSynced = repayment.isSynced;
-
-                              return Card(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                child: ListTile(
-                                  leading: Icon(
-                                    isSynced
-                                        ? Icons.cloud_done
-                                        : Icons.cloud_queue,
-                                    color: isSynced
-                                        ? Colors.green
-                                        : Colors.orange,
-                                  ),
-                                  title: Text('${repayment.receiptNumber}'),
-                                  subtitle: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Amount: ${repayment.currency} ${repayment.formattedAmount}',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: isUSD
-                                              ? Colors.green
-                                              : Colors.blue,
-                                        ),
-                                      ),
-                                      Text(
-                                        'Date: ${DateFormat('yyyy-MM-dd').format(repayment.dateOfPayment)}',
-                                      ),
-                                      Row(
-                                        children: [
-                                          Icon(
-                                            isSynced
-                                                ? Icons.check_circle
-                                                : Icons.schedule,
-                                            size: 16,
-                                            color: isSynced
-                                                ? Colors.green
-                                                : Colors.orange,
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            isSynced
-                                                ? 'Synced'
-                                                : 'Pending sync',
-                                            style: TextStyle(
-                                              color: isSynced
-                                                  ? Colors.green
-                                                  : Colors.orange,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                  isThreeLine: true,
-                                ),
-                              );
-                            }).toList(),
                           ),
+                          const SizedBox(
+                            height: 4,
+                          ),
+                          Text(
+                            'ID: ${widget.client.clientId}',
+                          ),
+                          Text(
+                            'Currency: ${widget.currency}',
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
             ),
+
+            const SizedBox(height: 24),
+
+            const Text(
+              'Disbursements',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight:
+                FontWeight.bold,
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            if (_disbursements.isEmpty)
+              Card(
+                child: Padding(
+                  padding:
+                  const EdgeInsets.all(
+                    32,
+                  ),
+                  child: Column(
+                    children: [
+                      const Icon(
+                        Icons
+                            .account_balance_wallet_outlined,
+                        size: 50,
+                        color:
+                        Colors.grey,
+                      ),
+                      const SizedBox(
+                        height: 12,
+                      ),
+                      const Text(
+                        'No disbursements found',
+                      ),
+                      const SizedBox(
+                        height: 12,
+                      ),
+                      ElevatedButton(
+                        onPressed:
+                        _refreshData,
+                        child:
+                        const Text(
+                          'Refresh',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              ..._disbursements.map(
+                    (disbursement) {
+                  return Card(
+                    margin:
+                    const EdgeInsets.only(
+                      bottom: 10,
+                    ),
+                    child: Padding(
+                      padding:
+                      const EdgeInsets.all(
+                        12,
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons
+                                    .account_balance_wallet,
+                                color:
+                                Colors
+                                    .blue,
+                              ),
+                              const SizedBox(
+                                width:
+                                10,
+                              ),
+                              Expanded(
+                                child:
+                                Text(
+                                  disbursement
+                                      .productName
+                                      ?.trim()
+                                      .isNotEmpty ==
+                                      true
+                                      ? disbursement
+                                      .productName!
+                                      : 'Loan',
+                                  style:
+                                  const TextStyle(
+                                    fontWeight:
+                                    FontWeight.bold,
+                                    fontSize:
+                                    16,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(
+                            height: 10,
+                          ),
+                          _infoRow(
+                            'Amount',
+                            _formatCurrency(
+                              disbursement
+                                  .amount,
+                            ),
+                          ),
+                          _infoRow(
+                            'Date',
+                            DateFormat(
+                              'yyyy-MM-dd',
+                            ).format(
+                              disbursement
+                                  .dateOfDisbursement,
+                            ),
+                          ),
+                          _infoRow(
+                            'ID',
+                            disbursement.id.toString(),
+                          ),
+                          const SizedBox(
+                            height: 10,
+                          ),
+                          SizedBox(
+                            width: double
+                                .infinity,
+                            child:
+                            ElevatedButton.icon(
+                              icon:
+                              const Icon(
+                                Icons
+                                    .payment,
+                              ),
+                              label:
+                              const Text(
+                                'Create Repayment',
+                              ),
+                              onPressed: () =>
+                                  _showRepaymentDialog(
+                                    disbursement,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+
+            const SizedBox(height: 24),
+
+            Row(
+              children: [
+                const Text(
+                  'Repayments',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight:
+                    FontWeight
+                        .bold,
+                  ),
+                ),
+                const Spacer(),
+                if (_repayments
+                    .isNotEmpty)
+                  Text(
+                    '${_repayments.length} records',
+                    style:
+                    const TextStyle(
+                      color:
+                      Colors.grey,
+                    ),
+                  ),
+              ],
+            ),
+
+            const SizedBox(height: 10),
+
+            if (_repayments.isEmpty)
+              const Card(
+                child: Padding(
+                  padding:
+                  EdgeInsets.all(
+                    32,
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons
+                            .receipt_long_outlined,
+                        size: 48,
+                        color:
+                        Colors.grey,
+                      ),
+                      SizedBox(
+                        height: 16,
+                      ),
+                      Text(
+                        'No repayments made yet',
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              ..._repayments.map(
+                    (repayment) {
+                  final isSynced =
+                      repayment
+                          .isSynced;
+
+                  return Card(
+                    margin:
+                    const EdgeInsets.only(
+                      bottom: 10,
+                    ),
+                    child: ListTile(
+                      leading: Icon(
+                        isSynced
+                            ? Icons
+                            .cloud_done
+                            : Icons
+                            .cloud_queue,
+                        color: isSynced
+                            ? Colors
+                            .green
+                            : Colors
+                            .orange,
+                      ),
+                      title: Text(
+                        repayment
+                            .receiptNumber,
+                        style:
+                        const TextStyle(
+                          fontWeight:
+                          FontWeight
+                              .bold,
+                        ),
+                      ),
+                      subtitle:
+                      Column(
+                        crossAxisAlignment:
+                        CrossAxisAlignment
+                            .start,
+                        children: [
+                          const SizedBox(
+                            height: 4,
+                          ),
+                          Text(
+                            'Amount: ${repayment.currency} ${repayment.formattedAmount}',
+                            style:
+                            TextStyle(
+                              color:
+                              repayment.currency ==
+                                  'USD'
+                                  ? Colors.green
+                                  : Colors.blue,
+                              fontWeight:
+                              FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            'Date: ${DateFormat('yyyy-MM-dd').format(repayment.dateOfPayment)}',
+                          ),
+                          const SizedBox(
+                            height: 4,
+                          ),
+                          Row(
+                            children: [
+                              Icon(
+                                isSynced
+                                    ? Icons.check_circle
+                                    : Icons.schedule,
+                                size:
+                                16,
+                                color: isSynced
+                                    ? Colors.green
+                                    : Colors.orange,
+                              ),
+                              const SizedBox(
+                                width:
+                                5,
+                              ),
+                              Text(
+                                isSynced
+                                    ? 'Synced'
+                                    : 'Pending sync',
+                                style:
+                                TextStyle(
+                                  color: isSynced
+                                      ? Colors.green
+                                      : Colors.orange,
+                                  fontSize:
+                                  12,
+                                  fontWeight:
+                                  FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
