@@ -12,9 +12,9 @@ import 'api_response.dart';
 class ApiService {
   // The two URLs that should alternate when one is not working
   static const String _defaultPrimaryUrl =
-      'https://petefin.lergtechsolutions.co.zw';
+      'https://recraftapi.paradigmclient.com';
   static const String _defaultSecondaryUrl =
-      'https://petefinadmin.paradigmuser.com';
+      'https://recraftapi.paradigmclient.com';
 
   static const String _activeUrlKey = 'active_url';
   static const String _lastFailedUrlKey = 'last_failed_url';
@@ -297,7 +297,7 @@ class ApiService {
     print('Reset to primary URL: $_currentUrl');
   }
 
-  /// Test both URLs to see which one is working
+
   Future<Map<String, bool>> testBothUrls() async {
     final results = <String, bool>{};
 

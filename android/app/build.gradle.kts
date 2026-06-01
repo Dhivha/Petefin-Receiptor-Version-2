@@ -58,6 +58,9 @@ android {
             if (keyPropertiesFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }
+            // Keep release build stable for current plugin set; avoids R8 missing-class failures.
+            isMinifyEnabled = false
+            isShrinkResources = false
             ndk {
                 debugSymbolLevel = "none"
             }
