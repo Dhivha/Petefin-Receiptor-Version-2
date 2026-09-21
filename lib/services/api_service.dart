@@ -10,7 +10,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'api_response.dart';
 
 class ApiService {
-  // The two URLs that should alternate when one is not working
   static const String _defaultPrimaryUrl =
       'https://recraftapi.paradigmclient.com';
   static const String _defaultSecondaryUrl =
@@ -42,14 +41,12 @@ class ApiService {
   String _currentUrl = _defaultPrimaryUrl;
   bool _isInitialized = false;
 
-  // Singleton pattern
   static final ApiService _instance = ApiService._internal();
 
   factory ApiService() => _instance;
 
   ApiService._internal();
 
-  /// Initialize the service and determine which URL to use
   Future<void> initialize() async {
     if (_isInitialized) return;
 
@@ -57,7 +54,7 @@ class ApiService {
         ? dotenv.get('API_BASE_URL').trim()
         : _defaultPrimaryUrl;
     _secondaryUrl =
-        dotenv.maybeGet('API_FALLBACK_URL')?.trim().isNotEmpty == true
+    dotenv.maybeGet('API_FALLBACK_URL')?.trim().isNotEmpty == true
         ? dotenv.get('API_FALLBACK_URL').trim()
         : _defaultSecondaryUrl;
 
@@ -70,27 +67,23 @@ class ApiService {
     print('ApiService FORCED to primary URL: $_currentUrl');
   }
 
-  /// Switch to the alternative URL
   void _switchUrl() {
     _currentUrl = _currentUrl == _primaryUrl ? _secondaryUrl : _primaryUrl;
     _saveActiveUrl();
     print('Switched to URL: $_currentUrl');
   }
 
-  /// Save the currently active URL
   Future<void> _saveActiveUrl() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_activeUrlKey, _currentUrl);
   }
 
-  /// Mark the current URL as failed and switch to alternative
   Future<void> _markCurrentUrlAsFailed() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_lastFailedUrlKey, _currentUrl);
     _switchUrl();
   }
 
-  /// Check internet connectivity
   Future<bool> _checkConnectivity() async {
     final results = await Connectivity().checkConnectivity();
     return results.any((result) => result != ConnectivityResult.none);
@@ -132,15 +125,15 @@ class ApiService {
       statusCode: response.statusCode ?? 0,
       bodyBytes: Uint8List.fromList(response.data ?? const []),
       headers: response.headers.map.map(
-        (key, value) => MapEntry(key.toLowerCase(), value.join(',')),
+            (key, value) => MapEntry(key.toLowerCase(), value.join(',')),
       ),
     );
   }
 
   Future<ApiResponse> _dedupe(
-    String key,
-    Future<ApiResponse> Function() request,
-  ) {
+      String key,
+      Future<ApiResponse> Function() request,
+      ) {
     final existing = _inFlightRequests[key];
     if (existing != null) return existing;
 
@@ -151,13 +144,12 @@ class ApiService {
   }
 
   Future<ApiResponse> _request(
-    String method,
-    String endpoint, {
-    Map<String, String>? headers,
-    Object? body,
-    bool allowCache = false,
-    bool hasRetried = false,
-  }) async {
+      String method,
+      String endpoint, {
+        Map<String, String>? headers,
+        Object? body,
+        bool allowCache = false,
+      }) async {
     await initialize();
 
     final key = _cacheKey(method, endpoint, body);
@@ -168,7 +160,30 @@ class ApiService {
       throw Exception('No internet connection available');
     }
 
-    return _dedupe(key, () async {
+    return _dedupe(
+      key,
+          () => _performRequest(
+        method,
+        endpoint,
+        headers: headers,
+        body: body,
+        allowCache: allowCache,
+        key: key,
+      ),
+    );
+  }
+
+  Future<ApiResponse> _performRequest(
+      String method,
+      String endpoint, {
+        Map<String, String>? headers,
+        Object? body,
+        required bool allowCache,
+        required String key,
+      }) async {
+    bool hasRetried = false;
+
+    while (true) {
       final url = '$_currentUrl$endpoint';
       try {
         print('Making $method request to: $url');
@@ -188,7 +203,10 @@ class ApiService {
         }
 
         if (apiResponse.statusCode >= 500 && !hasRetried) {
-          throw HttpException('Server error: ${apiResponse.statusCode}');
+          hasRetried = true;
+          print('Server error on $_currentUrl: ${apiResponse.statusCode}');
+          await _markCurrentUrlAsFailed();
+          continue;
         }
         return apiResponse;
       } catch (e) {
@@ -196,47 +214,39 @@ class ApiService {
         if (cached != null) return cached;
 
         if (!hasRetried) {
+          hasRetried = true;
           print('Network error on $_currentUrl: $e');
           await _markCurrentUrlAsFailed();
-          return _request(
-            method,
-            endpoint,
-            headers: headers,
-            body: body,
-            allowCache: allowCache,
-            hasRetried: true,
-          );
+          continue;
         }
 
         throw Exception(
           'Both API endpoints are currently unavailable. Please try again later.',
         );
       }
-    });
+    }
   }
 
-  /// Make GET request with cache and automatic URL fallback.
   Future<ApiResponse> get(
-    String endpoint, {
-    Map<String, String>? headers,
-  }) async {
+      String endpoint, {
+        Map<String, String>? headers,
+      }) async {
     return _request('GET', endpoint, headers: headers, allowCache: true);
   }
 
-  /// Make POST request with in-flight de-duplication and URL fallback.
   Future<ApiResponse> post(
-    String endpoint, {
-    Map<String, String>? headers,
-    Object? body,
-  }) async {
+      String endpoint, {
+        Map<String, String>? headers,
+        Object? body,
+      }) async {
     return _request('POST', endpoint, headers: headers, body: body);
   }
 
   Future<ApiResponse> _multipartPost(
-    String endpoint,
-    FormData formData, {
-    Duration timeout = const Duration(seconds: 30),
-  }) async {
+      String endpoint,
+      FormData formData, {
+        Duration timeout = const Duration(seconds: 30),
+      }) async {
     await initialize();
 
     if (!await _checkConnectivity()) {
@@ -279,29 +289,24 @@ class ApiService {
     }
   }
 
-  /// Get the current active URL
   String getCurrentUrl() {
     return _currentUrl;
   }
 
-  /// Force switch to the other URL (for manual testing)
   Future<void> forceSwitchUrl() async {
     _switchUrl();
     print('Manually switched to: $_currentUrl');
   }
 
-  /// Reset to primary URL
   Future<void> resetToPrimaryUrl() async {
     _currentUrl = _primaryUrl;
     await _saveActiveUrl();
     print('Reset to primary URL: $_currentUrl');
   }
 
-
   Future<Map<String, bool>> testBothUrls() async {
     final results = <String, bool>{};
 
-    // Test primary URL
     try {
       final response = await _dio.get<List<int>>(
         _primaryUrl,
@@ -313,7 +318,6 @@ class ApiService {
       results[_primaryUrl] = false;
     }
 
-    // Test secondary URL
     try {
       final response = await _dio.get<List<int>>(
         _secondaryUrl,
@@ -328,7 +332,6 @@ class ApiService {
     return results;
   }
 
-  /// Login with WhatsApp contact and PIN
   Future<ApiResponse> login(String whatsAppContact, String pin) async {
     final loginData = {"WhatsAppContact": whatsAppContact, "Pin": pin};
 
@@ -349,7 +352,6 @@ class ApiService {
     }
   }
 
-  /// Load clients for a specific branch
   Future<ApiResponse> loadClients(String branchName) async {
     try {
       final response = await get(
@@ -366,7 +368,6 @@ class ApiService {
     }
   }
 
-  /// Test secondary URL connectivity
   Future<ApiResponse> testSecondaryUrl() async {
     try {
       final response = await _dio.get<List<int>>(
@@ -380,7 +381,6 @@ class ApiService {
     }
   }
 
-  /// Load disbursements for a specific client
   Future<ApiResponse> loadDisbursements(String clientId) async {
     try {
       final response = await get(
@@ -397,10 +397,9 @@ class ApiService {
     }
   }
 
-  /// Submit USD repayment
   Future<ApiResponse> submitUSDRepayment(
-    Map<String, dynamic> repaymentData,
-  ) async {
+      Map<String, dynamic> repaymentData,
+      ) async {
     try {
       final response = await post(
         '/api/Repayment/add-repayment',
@@ -418,12 +417,10 @@ class ApiService {
     }
   }
 
-  /// Submit ZWG repayment
   Future<ApiResponse> submitZWGRepayment(
-    Map<String, dynamic> repaymentData,
-  ) async {
+      Map<String, dynamic> repaymentData,
+      ) async {
     try {
-      // Use separate ZWG endpoint as originally designed
       final response = await post(
         '/api/ZWGRepayment/add-repayment',
         body: json.encode(repaymentData),
@@ -440,7 +437,6 @@ class ApiService {
     }
   }
 
-  /// Load receipt numbers by branch and user
   Future<ApiResponse> loadReceiptNumbers(String branch, int userId) async {
     try {
       final response = await get(
@@ -459,10 +455,9 @@ class ApiService {
     }
   }
 
-  /// Cancel a repayment
   Future<ApiResponse> cancelRepayment(
-    Map<String, dynamic> cancellationData,
-  ) async {
+      Map<String, dynamic> cancellationData,
+      ) async {
     try {
       final response = await post(
         '/api/CancelledRepayments/cancel-repayment',
@@ -480,7 +475,6 @@ class ApiService {
     }
   }
 
-  /// Get cancelled repayments by branch
   Future<ApiResponse> getCancelledRepayments(String branch) async {
     try {
       final response = await get(
@@ -499,7 +493,6 @@ class ApiService {
     }
   }
 
-  /// Add penalty fee
   Future<ApiResponse> addPenaltyFee(Map<String, dynamic> penaltyFeeData) async {
     try {
       final response = await post(
@@ -519,8 +512,8 @@ class ApiService {
   }
 
   Future<ApiResponse> addFinalPenaltyFee(
-    Map<String, dynamic> finalPenaltyFeeData,
-  ) async {
+      Map<String, dynamic> finalPenaltyFeeData,
+      ) async {
     try {
       final response = await post(
         '/api/FinalPenaltyFees/add',
@@ -538,10 +531,9 @@ class ApiService {
     }
   }
 
-  /// Cancel penalty receipt
   Future<ApiResponse> cancelPenaltyReceipt(
-    Map<String, dynamic> cancellationData,
-  ) async {
+      Map<String, dynamic> cancellationData,
+      ) async {
     try {
       final response = await post(
         '/api/CancelPenaltyReceipts/cancel-penalty-receipt',
@@ -559,10 +551,9 @@ class ApiService {
     }
   }
 
-  /// Cancel admin receipt
   Future<ApiResponse> cancelAdminReceipt(
-    Map<String, dynamic> cancellationData,
-  ) async {
+      Map<String, dynamic> cancellationData,
+      ) async {
     try {
       final response = await post(
         '/api/CancelledAdmin/cancel-admin-receipt',
@@ -580,13 +571,12 @@ class ApiService {
     }
   }
 
-  /// Cancel FCB receipt
   Future<ApiResponse> cancelFCBReceipt(
-    Map<String, dynamic> cancellationData,
-  ) async {
+      Map<String, dynamic> cancellationData,
+      ) async {
     try {
       final response = await post(
-        '/api/CancelledAdmin/cancel-admin-receipt', // Same endpoint as admin
+        '/api/CancelledAdmin/cancel-admin-receipt',
         body: json.encode(cancellationData),
         headers: {'Content-Type': 'application/json'},
       );
@@ -601,7 +591,6 @@ class ApiService {
     }
   }
 
-  /// Get cancelled penalty receipts by branch
   Future<ApiResponse> getCancelledPenaltyReceipts(String branch) async {
     try {
       final response = await get(
@@ -620,12 +609,9 @@ class ApiService {
     }
   }
 
-  // ===== ADMIN FEES RECEIPT METHODS =====
-
-  /// Post admin fees receipt
   Future<ApiResponse> postAdminFeesReceipt(
-    Map<String, dynamic> adminData,
-  ) async {
+      Map<String, dynamic> adminData,
+      ) async {
     try {
       final response = await post(
         '/api/AdminFeesReceipt/post-admin',
@@ -643,9 +629,6 @@ class ApiService {
     }
   }
 
-  // ===== FCB RECEIPT METHODS =====
-
-  /// Post FCB receipt
   Future<ApiResponse> postFCBReceipt(Map<String, dynamic> fcbData) async {
     try {
       final response = await post(
@@ -664,12 +647,9 @@ class ApiService {
     }
   }
 
-  // ===== CANCELLATION METHODS =====
-
-  /// Post cancellation for admin receipt
   Future<ApiResponse> postCancelledAdminReceipt(
-    Map<String, dynamic> cancellationData,
-  ) async {
+      Map<String, dynamic> cancellationData,
+      ) async {
     try {
       final response = await post(
         '/api/CancelledAdmin/cancel-admin-receipt',
@@ -689,7 +669,6 @@ class ApiService {
     }
   }
 
-  /// Get all branches
   Future<ApiResponse> getBranches() async {
     try {
       final response = await get('/api/Branch');
@@ -704,7 +683,6 @@ class ApiService {
     }
   }
 
-  /// Post cancelled admin receipt without throwing exceptions (for background sync)
   Future<bool> syncCancelledAdminReceipt({
     required String receiptNumber,
     required String receiptType,
@@ -727,12 +705,9 @@ class ApiService {
     }
   }
 
-  // ===== TRANSFER METHODS =====
-
-  /// Submit USD Cash transfer
   Future<ApiResponse> submitUSDCashTransfer(
-    Map<String, dynamic> transferData,
-  ) async {
+      Map<String, dynamic> transferData,
+      ) async {
     try {
       final response = await post(
         '/api/Transfers',
@@ -750,10 +725,9 @@ class ApiService {
     }
   }
 
-  /// Submit USD Bank transfer
   Future<ApiResponse> submitUSDBankTransfer(
-    Map<String, dynamic> transferData,
-  ) async {
+      Map<String, dynamic> transferData,
+      ) async {
     try {
       final response = await post(
         '/api/BankTransfers',
@@ -771,10 +745,9 @@ class ApiService {
     }
   }
 
-  /// Submit ZWG Bank transfer
   Future<ApiResponse> submitZWGBankTransfer(
-    Map<String, dynamic> transferData,
-  ) async {
+      Map<String, dynamic> transferData,
+      ) async {
     try {
       final response = await post(
         '/api/ZWGTransfers',
@@ -792,11 +765,10 @@ class ApiService {
     }
   }
 
-  /// Background sync for transfers - returns true if successful
   Future<bool> syncTransfer(
-    Map<String, dynamic> transferData,
-    String transferType,
-  ) async {
+      Map<String, dynamic> transferData,
+      String transferType,
+      ) async {
     try {
       ApiResponse response;
 
@@ -831,9 +803,6 @@ class ApiService {
     }
   }
 
-  // ===== EXPENSE METHODS =====
-
-  /// Submit expense
   Future<ApiResponse> submitExpense(Map<String, dynamic> expenseData) async {
     try {
       final response = await post(
@@ -852,7 +821,6 @@ class ApiService {
     }
   }
 
-  /// Background sync for expenses - returns true if successful
   Future<bool> syncExpense(Map<String, dynamic> expenseData) async {
     try {
       final response = await submitExpense(expenseData);
@@ -871,9 +839,6 @@ class ApiService {
     }
   }
 
-  // ===== PETTY CASH METHODS =====
-
-  /// Submit fund petty cash
   Future<ApiResponse> fundPettyCash(Map<String, dynamic> pettyCashData) async {
     try {
       final response = await post(
@@ -892,7 +857,6 @@ class ApiService {
     }
   }
 
-  /// Background sync for petty cash - returns true if successful
   Future<bool> syncPettyCash(Map<String, dynamic> pettyCashData) async {
     try {
       final response = await fundPettyCash(pettyCashData);
@@ -911,12 +875,9 @@ class ApiService {
     }
   }
 
-  // ===== CASH COUNT METHODS =====
-
-  /// Submit daily cash count
   Future<ApiResponse> captureDailyCashCount(
-    Map<String, dynamic> cashCountData,
-  ) async {
+      Map<String, dynamic> cashCountData,
+      ) async {
     try {
       final response = await post(
         '/api/CashCount/capture-daily-cash-count',
@@ -934,7 +895,6 @@ class ApiService {
     }
   }
 
-  /// Background sync for cash count - returns true if successful
   Future<bool> syncCashCount(Map<String, dynamic> cashCountData) async {
     try {
       final response = await captureDailyCashCount(cashCountData);
@@ -953,12 +913,9 @@ class ApiService {
     }
   }
 
-  // ===== CASHBOOK DOWNLOAD METHODS =====
-
-  /// Download cashbook document
   Future<ApiResponse> downloadCashbookDocument(
-    Map<String, dynamic> requestData,
-  ) async {
+      Map<String, dynamic> requestData,
+      ) async {
     try {
       final response = await post(
         '/api/DownloadCashbookDocument/download',
@@ -982,7 +939,6 @@ class ApiService {
     }
   }
 
-  /// Background download for cashbook - returns file bytes if successful
   Future<List<int>?> downloadCashbook(Map<String, dynamic> requestData) async {
     try {
       final response = await downloadCashbookDocument(requestData);
@@ -1001,9 +957,6 @@ class ApiService {
     }
   }
 
-  // ===== REQUEST BALANCE METHODS =====
-
-  /// Submit request balance
   Future<ApiResponse> requestBalance(Map<String, dynamic> requestData) async {
     try {
       final response = await post(
@@ -1022,7 +975,6 @@ class ApiService {
     }
   }
 
-  /// Background sync for request balance - returns true if successful
   Future<bool> syncRequestBalance(Map<String, dynamic> requestData) async {
     try {
       final response = await requestBalance(requestData);
@@ -1041,9 +993,6 @@ class ApiService {
     }
   }
 
-  // ===== CLIENT MANAGEMENT METHODS =====
-
-  /// Add client with file upload using multipart/form-data
   Future<ApiResponse> addClientWithFile({
     required String firstName,
     required String lastName,
@@ -1091,7 +1040,6 @@ class ApiService {
     }
   }
 
-  /// Upload client photo
   Future<ApiResponse> uploadClientPhoto({
     required String clientId,
     required Uint8List photoBytes,
@@ -1124,7 +1072,6 @@ class ApiService {
     }
   }
 
-  /// Get client photo URL
   Future<ApiResponse> getClientPhotoUrl(String clientId) async {
     try {
       final response = await get(
@@ -1141,13 +1088,11 @@ class ApiService {
     }
   }
 
-  /// Submit collateral documents with file upload using multipart/form-data
   Future<ApiResponse> submitCollateralDocuments({
     required String clientId,
     required String disbursementStartDate,
     required String disbursementEndDate,
-    required List<Map<String, dynamic>>
-    images, // [{'bytes': Uint8List, 'extension': String}]
+    required List<Map<String, dynamic>> images,
   }) async {
     try {
       final formData = FormData.fromMap({
@@ -1186,9 +1131,7 @@ class ApiService {
       rethrow;
     }
   }
-  // ===== FILE DOWNLOAD METHODS (NO TIMEOUT) =====
 
-  /// GET request for file downloads with Dio byte responses.
   Future<ApiResponse> getFile(String endpoint) async {
     return _request(
       'GET',
@@ -1197,73 +1140,63 @@ class ApiService {
     );
   }
 
-  /// Download Branch Loan Book (Excel)
   Future<ApiResponse> downloadLoanBook(String branch) async {
     return getFile(
       '/api/MemberStatement/download-branch-loanbook-excel?branch=${Uri.encodeComponent(branch)}',
     );
   }
 
-  /// Download Reminder PDF
   Future<ApiResponse> downloadReminderPdf(
-    String branchName,
-    String targetDate,
-  ) async {
+      String branchName,
+      String targetDate,
+      ) async {
     return getFile(
       '/api/ForceTest/TestReminderPdf/${Uri.encodeComponent(branchName)}?targetDate=${Uri.encodeComponent(targetDate)}',
     );
   }
 
-  /// Download Defaulters Report (PDF)
   Future<ApiResponse> downloadDefaultersReport(
-    String branchName,
-    String targetDate,
-  ) async {
+      String branchName,
+      String targetDate,
+      ) async {
     return getFile(
       '/api/PreciseDefault/download-amount-based-report?branchName=${Uri.encodeComponent(branchName)}&targetDate=${Uri.encodeComponent(targetDate)}',
     );
   }
 
-  /// Download Loan Book Analysis (Excel) — Accounts/Management only
   Future<ApiResponse> downloadLoanBookAnalysis(String targetDate) async {
     return getFile(
       '/api/LoanBookAnalysis/GenerateLoanBookVarianceAnalysis?targetDate=${Uri.encodeComponent(targetDate)}',
     );
   }
 
-  /// Download Consolidated Income by Branch (Excel) — Accounts/Management only
   Future<ApiResponse> downloadConsolidatedBranch(
-    String startDate,
-    String endDate,
-  ) async {
+      String startDate,
+      String endDate,
+      ) async {
     return getFile(
       '/api/ConsolidatedClassBranch/DownloadAllBranchesConsolidatedIncome?startDate=${Uri.encodeComponent(startDate)}&endDate=${Uri.encodeComponent(endDate)}',
     );
   }
 
-  /// Download Consolidated Income by Day (Excel) — Accounts/Management only
   Future<ApiResponse> downloadConsolidatedDay(
-    String startDate,
-    String endDate,
-  ) async {
+      String startDate,
+      String endDate,
+      ) async {
     return getFile(
       '/api/ConsolidatedClassDay/DownloadConsolidatedDay?startDate=${Uri.encodeComponent(startDate)}&endDate=${Uri.encodeComponent(endDate)}',
     );
   }
 
-  /// Download Daily Income (Excel) — Accounts/Management only
   Future<ApiResponse> downloadDailyIncome(
-    String startDate,
-    String endDate,
-  ) async {
+      String startDate,
+      String endDate,
+      ) async {
     return getFile(
       '/api/DailyIncome/DownloadDailyIncome?startDate=${Uri.encodeComponent(startDate)}&endDate=${Uri.encodeComponent(endDate)}',
     );
   }
 
-  // ===== MEMBER STATEMENT METHODS =====
-
-  /// Get client balance summary (TotalBalance + loan summaries)
   Future<ApiResponse> getClientBalance(String clientId) async {
     try {
       final response = await get(
@@ -1277,7 +1210,6 @@ class ApiService {
     }
   }
 
-  /// Download member statement PDF for a client
   Future<ApiResponse> downloadClientStatementPdf(String clientId) async {
     return getFile(
       '/api/MemberStatement/download-member-statement-pdf/${Uri.encodeComponent(clientId)}',

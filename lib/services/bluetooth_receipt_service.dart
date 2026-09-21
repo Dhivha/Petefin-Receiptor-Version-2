@@ -161,7 +161,7 @@ class BluetoothReceiptService {
     final now = DateTime.now();
 
     return {
-      'header': 'PETEFIN MICROFINANCE',
+      'header': 'RECRAFT MICROFINANCE',
       'subheader': 'REPAYMENT RECEIPT',
       'receiptNumber': repayment.receiptNumber,
       'date': '${now.day}/${now.month}/${now.year}',
@@ -171,7 +171,6 @@ class BluetoothReceiptService {
       'clientId': repayment.clientId,
       'amount': repayment.formattedAmount,
       'currency': repayment.currency,
-      'paymentNumber': repayment.paymentNumber,
       'disbursementId': repayment.disbursementId.toString(),
       'branch': repayment.branch,
       'footer': 'Thank you for your payment!',

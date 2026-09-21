@@ -25,7 +25,7 @@ class Repayment {
     required this.branch,
     required this.dateOfPayment,
     required this.paymentNumber,
-    this.force = true,
+    this.force = false,
     required this.receiptNumber,
     required this.currency,
     required this.clientName,
@@ -48,7 +48,7 @@ class Repayment {
           ? DateTime.parse(json['dateOfPayment'])
           : DateTime.now(),
       paymentNumber: json['PaymentNumber'] ?? json['paymentNumber'] ?? '',
-      force: json['Force'] ?? json['force'] ?? true,
+      force: json['Force'] ?? json['force'] ?? false,
       receiptNumber: json['ReceiptNumber'] ?? json['receiptNumber'] ?? '',
       currency: json['currency'] ?? 'USD',
       clientName: json['clientName'] ?? '',
@@ -92,11 +92,9 @@ class Repayment {
       'Amount': amount,
       'Branch': branch,
       'DateOfPayment': dateOfPayment.toIso8601String(),
-      'PaymentNumber': paymentNumber,
-      'Force': force,
-      'ReceiptNumber': receiptNumber,
-      'Currency': currency, // Added currency field
-      'ClientName': clientName, // Added client name
+      'Force': false,
+      'ReceiptNumber': receiptNumber
+
     };
   }
 
@@ -156,7 +154,6 @@ class Repayment {
     );
   }
 
-  /// Generate receipt number: "Petefin" + timestamp to milliseconds
   static String generateReceiptNumber() {
     final now = DateTime.now();
     final formatter =
@@ -170,7 +167,6 @@ class Repayment {
     return 'Petefin$formatter';
   }
 
-  /// Format amount with proper currency symbol
   String get formattedAmount {
     final currencyFormat = NumberFormat.currency(
       symbol: currency == 'USD' ? '\$' : 'ZWG',
@@ -179,15 +175,12 @@ class Repayment {
     return currencyFormat.format(amount);
   }
 
-  /// Get currency symbol
   String get currencySymbol {
     return currency == 'USD' ? '\$' : 'ZWG';
   }
 
-  /// Check if payment is pending sync
   bool get isPendingSync => !isSynced;
 
-  /// Get sync status text
   String get syncStatusText {
     if (isSynced) {
       return 'Synced';
@@ -196,17 +189,14 @@ class Repayment {
     }
   }
 
-  /// Get formatted date
   String get formattedDate {
     return DateFormat('dd MMM yyyy').format(dateOfPayment);
   }
 
-  /// Get formatted created date
   String get formattedCreatedDate {
     return DateFormat('dd MMM yyyy HH:mm').format(createdAt);
   }
 
-  /// Get formatted synced date
   String get formattedSyncedDate {
     return syncedAt != null
         ? DateFormat('dd MMM yyyy HH:mm').format(syncedAt!)
@@ -223,9 +213,9 @@ class Repayment {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is Repayment &&
-          runtimeType == other.runtimeType &&
-          receiptNumber == other.receiptNumber;
+          other is Repayment &&
+              runtimeType == other.runtimeType &&
+              receiptNumber == other.receiptNumber;
 
   @override
   int get hashCode => receiptNumber.hashCode;
