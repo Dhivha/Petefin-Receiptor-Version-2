@@ -9,6 +9,24 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_response.dart';
 
+class RepaymentSyncResult {
+  final bool synced;
+  final int statusCode;
+  final String code;
+  final String message;
+
+  const RepaymentSyncResult({
+    required this.synced,
+    required this.statusCode,
+    required this.code,
+    required this.message,
+  });
+
+  @override
+  String toString() =>
+      'RepaymentSyncResult{synced: $synced, statusCode: $statusCode, code: $code, message: $message}';
+}
+
 class ApiService {
   static const String _defaultPrimaryUrl =
       'https://recraftapi.paradigmclient.com';
@@ -18,6 +36,9 @@ class ApiService {
   static const String _activeUrlKey = 'active_url';
   static const String _lastFailedUrlKey = 'last_failed_url';
   static const String _cacheBoxName = 'api_cache';
+
+  static const String usdRepaymentEndpoint = '/api/FixedRepayment/add-repayment';
+  static const String zwgRepaymentEndpoint = '/api/ZWGRepayment/add-repayment';
 
   late final Dio _dio = Dio(
     BaseOptions(
@@ -397,13 +418,22 @@ class ApiService {
     }
   }
 
+  Map<String, dynamic> _cleanRepaymentPayload(
+      Map<String, dynamic> repaymentData,
+      ) {
+    final payload = Map<String, dynamic>.from(repaymentData);
+    payload.remove('PaymentNumber');
+    payload.remove('paymentNumber');
+    return payload;
+  }
+
   Future<ApiResponse> submitUSDRepayment(
       Map<String, dynamic> repaymentData,
       ) async {
     try {
       final response = await post(
-        '/api/Repayment/add-repayment',
-        body: json.encode(repaymentData),
+        usdRepaymentEndpoint,
+        body: json.encode(_cleanRepaymentPayload(repaymentData)),
         headers: {'Content-Type': 'application/json'},
       );
 
@@ -422,8 +452,8 @@ class ApiService {
       ) async {
     try {
       final response = await post(
-        '/api/ZWGRepayment/add-repayment',
-        body: json.encode(repaymentData),
+        zwgRepaymentEndpoint,
+        body: json.encode(_cleanRepaymentPayload(repaymentData)),
         headers: {'Content-Type': 'application/json'},
       );
 
@@ -434,6 +464,83 @@ class ApiService {
     } catch (e) {
       print('Submit ZWG repayment error: $e');
       rethrow;
+    }
+  }
+
+  Map<String, dynamic> _decodeJsonMap(ApiResponse response) {
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) return decoded;
+    } catch (_) {}
+    return <String, dynamic>{};
+  }
+
+  dynamic _jsonField(Map<String, dynamic> map, String camelName) {
+    if (map.containsKey(camelName)) return map[camelName];
+    final pascalName = camelName[0].toUpperCase() + camelName.substring(1);
+    return map[pascalName];
+  }
+
+  Future<RepaymentSyncResult> syncRepayment(
+      Map<String, dynamic> repaymentData,
+      String currency,
+      ) async {
+    final isZWG = currency.toUpperCase() == 'ZWG';
+
+    try {
+      final response = isZWG
+          ? await submitZWGRepayment(repaymentData)
+          : await submitUSDRepayment(repaymentData);
+
+      final body = _decodeJsonMap(response);
+      final successField = _jsonField(body, 'success');
+      final savedField = _jsonField(body, 'saved');
+      final code = (_jsonField(body, 'code') ?? '').toString();
+      final serverMessage = (_jsonField(body, 'message') ?? '').toString();
+      final is2xx = response.statusCode >= 200 && response.statusCode < 300;
+
+      final bool confirmedSaved;
+      if (isZWG) {
+        confirmedSaved = is2xx && (successField == null || successField == true);
+      } else {
+        confirmedSaved = response.statusCode == 200 &&
+            successField == true &&
+            savedField == true;
+      }
+
+      if (confirmedSaved) {
+        return RepaymentSyncResult(
+          synced: true,
+          statusCode: response.statusCode,
+          code: code.isEmpty ? 'SAVED' : code,
+          message: 'Saved on server',
+        );
+      }
+
+      if (response.statusCode == 409 && code == 'DUPLICATE_RECEIPT') {
+        return RepaymentSyncResult(
+          synced: true,
+          statusCode: response.statusCode,
+          code: code,
+          message: 'Already saved on server',
+        );
+      }
+
+      return RepaymentSyncResult(
+        synced: false,
+        statusCode: response.statusCode,
+        code: code.isEmpty ? 'NOT_SAVED' : code,
+        message: serverMessage.isNotEmpty
+            ? 'NOT saved: $serverMessage'
+            : 'NOT saved: server did not confirm (HTTP ${response.statusCode})',
+      );
+    } catch (e) {
+      return RepaymentSyncResult(
+        synced: false,
+        statusCode: 0,
+        code: 'NOT_SENT',
+        message: 'NOT saved: $e',
+      );
     }
   }
 

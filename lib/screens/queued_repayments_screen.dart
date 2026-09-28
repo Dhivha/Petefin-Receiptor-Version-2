@@ -41,7 +41,6 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen>
     try {
       final authService = AuthService();
 
-      // Load queued and synced repayments
       final unsyncedRepayments = await authService.getUnsyncedRepayments();
       final syncedRepayments = await authService.getSyncedRepayments();
 
@@ -50,7 +49,6 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen>
         _syncedRepayments = syncedRepayments;
       });
 
-      // Load cancelled repayments
       await _loadCancelledRepayments();
     } catch (e) {
       if (mounted) {
@@ -84,28 +82,30 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen>
       final authService = AuthService();
       final result = await authService.syncUnyncedRepayments();
 
-      if (result.success) {
-        await _loadAllRepayments();
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(result.message)));
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(result.message),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+      await _loadAllRepayments();
+
+      if (mounted) {
+        final stillPending = _unsyncedRepayments.length;
+        final message = stillPending == 0
+            ? '✅ All repayments confirmed saved on server. ${result.message}'
+            : '⚠️ $stillPending repayment(s) NOT saved on server yet. ${result.message}';
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: stillPending == 0 && result.success
+                ? Colors.green
+                : Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
       }
     } catch (e) {
+      await _loadAllRepayments();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Sync failed: $e'),
+            content: Text('❌ Sync failed, repayments NOT saved on server: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -184,7 +184,7 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen>
       );
 
       if (result.success) {
-        await _loadAllRepayments(); // Refresh all data
+        await _loadAllRepayments();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -192,7 +192,6 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen>
               backgroundColor: Colors.green,
             ),
           );
-          // Switch to cancelled tab to show the cancelled receipt
           _tabController.animateTo(2);
         }
       } else {
@@ -220,18 +219,20 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen>
   }
 
   Widget _buildRepaymentCard(
-    Repayment repayment, {
-    bool showCancelButton = false,
-  }) {
+      Repayment repayment, {
+        bool showCancelButton = false,
+      }) {
     final isUSD = repayment.currency == 'USD';
     final isPending = !repayment.isSynced;
+    final hasServerResponse =
+        repayment.syncResponse != null && repayment.syncResponse!.isNotEmpty;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: ExpansionTile(
         leading: Icon(
-          isPending ? Icons.cloud_queue : Icons.cloud_done,
-          color: isPending ? Colors.orange : Colors.green,
+          isPending ? Icons.cloud_off : Icons.cloud_done,
+          color: isPending ? Colors.red : Colors.green,
           size: 30,
         ),
         title: Text(
@@ -253,20 +254,33 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen>
             Row(
               children: [
                 Icon(
-                  isPending ? Icons.schedule : Icons.check_circle,
+                  isPending ? Icons.error_outline : Icons.check_circle,
                   size: 16,
-                  color: isPending ? Colors.orange : Colors.green,
+                  color: isPending ? Colors.red : Colors.green,
                 ),
                 const SizedBox(width: 4),
-                Text(
-                  isPending ? 'Pending Sync' : 'Synced',
-                  style: TextStyle(
-                    color: isPending ? Colors.orange : Colors.green,
-                    fontWeight: FontWeight.w500,
+                Expanded(
+                  child: Text(
+                    isPending
+                        ? 'NOT synced – not saved on server yet'
+                        : 'Synced – confirmed saved on server',
+                    style: TextStyle(
+                      color: isPending ? Colors.red : Colors.green,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
               ],
             ),
+            if (isPending && hasServerResponse)
+              Text(
+                repayment.syncResponse!,
+                style: const TextStyle(
+                  color: Colors.red,
+                  fontStyle: FontStyle.italic,
+                  fontSize: 12,
+                ),
+              ),
           ],
         ),
         children: [
@@ -280,12 +294,19 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen>
                 _buildDetailRow('Client ID', repayment.clientId),
                 _buildDetailRow('Amount', repayment.formattedAmount),
                 _buildDetailRow('Currency', repayment.currency),
-                _buildDetailRow('Payment Number', repayment.paymentNumber),
                 _buildDetailRow('Branch', repayment.branch),
                 _buildDetailRow('Date of Payment', repayment.formattedDate),
                 _buildDetailRow('Created', repayment.formattedCreatedDate),
+                _buildDetailRow(
+                  'Server Status',
+                  isPending
+                      ? 'NOT saved on server'
+                      : 'Confirmed saved on server',
+                ),
                 if (repayment.isSynced)
                   _buildDetailRow('Synced', repayment.formattedSyncedDate),
+                if (hasServerResponse)
+                  _buildDetailRow('Server Response', repayment.syncResponse!),
                 if (showCancelButton) ...[
                   const Divider(),
                   Row(
@@ -411,8 +432,8 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen>
           unselectedLabelColor: Colors.white70,
           tabs: [
             Tab(
-              text: 'Queued (${_unsyncedRepayments.length})',
-              icon: const Icon(Icons.queue),
+              text: 'Not Synced (${_unsyncedRepayments.length})',
+              icon: const Icon(Icons.cloud_off),
             ),
             Tab(
               text: 'Synced (${_syncedRepayments.length})',
@@ -428,13 +449,13 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen>
           IconButton(
             icon: _isSyncing
                 ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  )
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            )
                 : const Icon(Icons.sync),
             onPressed: _isSyncing ? null : _manualSync,
             tooltip: 'Sync All Pending',
@@ -449,79 +470,75 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen>
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : TabBarView(
-              controller: _tabController,
-              children: [
-                // Queued Tab (Unsynced)
-                _buildQueuedTab(),
-                // Synced Tab
-                _buildSyncedTab(),
-                // Cancelled Tab
-                _buildCancelledTab(),
-              ],
-            ),
+        controller: _tabController,
+        children: [
+          _buildQueuedTab(),
+          _buildSyncedTab(),
+          _buildCancelledTab(),
+        ],
+      ),
     );
   }
 
   Widget _buildQueuedTab() {
     return Column(
       children: [
-        // Summary Card
         Container(
           margin: const EdgeInsets.all(16),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.orange.shade50,
+            color: Colors.red.shade50,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.orange.shade200),
+            border: Border.all(color: Colors.red.shade200),
           ),
           child: Row(
             children: [
-              const Icon(Icons.queue, color: Colors.orange, size: 32),
+              const Icon(Icons.cloud_off, color: Colors.red, size: 32),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${_unsyncedRepayments.length} Pending Sync',
+                      '${_unsyncedRepayments.length} NOT Synced',
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const Text('Repayments waiting to be synchronized'),
+                    const Text(
+                      'These repayments are NOT saved on the server yet. Tap sync to retry.',
+                    ),
                   ],
                 ),
               ),
             ],
           ),
         ),
-
-        // Repayments List
         Expanded(
           child: _unsyncedRepayments.isEmpty
               ? const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.cloud_queue, size: 64, color: Colors.grey),
-                      SizedBox(height: 16),
-                      Text(
-                        'No pending repayments',
-                        style: TextStyle(fontSize: 18, color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: _unsyncedRepayments.length,
-                  itemBuilder: (context, index) {
-                    return _buildRepaymentCard(
-                      _unsyncedRepayments[index],
-                      showCancelButton: true,
-                    );
-                  },
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.cloud_done, size: 64, color: Colors.grey),
+                SizedBox(height: 16),
+                Text(
+                  'No unsynced repayments',
+                  style: TextStyle(fontSize: 18, color: Colors.grey),
                 ),
+              ],
+            ),
+          )
+              : ListView.builder(
+            itemCount: _unsyncedRepayments.length,
+            itemBuilder: (context, index) {
+              return _buildRepaymentCard(
+                _unsyncedRepayments[index],
+                showCancelButton: true,
+              );
+            },
+          ),
         ),
       ],
     );
@@ -530,7 +547,6 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen>
   Widget _buildSyncedTab() {
     return Column(
       children: [
-        // Summary Card
         Container(
           margin: const EdgeInsets.all(16),
           padding: const EdgeInsets.all(16),
@@ -548,45 +564,45 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${_syncedRepayments.length} Successfully Synced',
+                      '${_syncedRepayments.length} Synced',
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const Text('Repayments synchronized with server'),
+                    const Text(
+                      'These repayments are confirmed saved on the server.',
+                    ),
                   ],
                 ),
               ),
             ],
           ),
         ),
-
-        // Repayments List
         Expanded(
           child: _syncedRepayments.isEmpty
               ? const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.cloud_done, size: 64, color: Colors.grey),
-                      SizedBox(height: 16),
-                      Text(
-                        'No synced repayments',
-                        style: TextStyle(fontSize: 18, color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: _syncedRepayments.length,
-                  itemBuilder: (context, index) {
-                    return _buildRepaymentCard(
-                      _syncedRepayments[index],
-                      showCancelButton: true,
-                    );
-                  },
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.cloud_done, size: 64, color: Colors.grey),
+                SizedBox(height: 16),
+                Text(
+                  'No synced repayments',
+                  style: TextStyle(fontSize: 18, color: Colors.grey),
                 ),
+              ],
+            ),
+          )
+              : ListView.builder(
+            itemCount: _syncedRepayments.length,
+            itemBuilder: (context, index) {
+              return _buildRepaymentCard(
+                _syncedRepayments[index],
+                showCancelButton: true,
+              );
+            },
+          ),
         ),
       ],
     );
@@ -595,7 +611,6 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen>
   Widget _buildCancelledTab() {
     return Column(
       children: [
-        // Summary Card
         Container(
           margin: const EdgeInsets.all(16),
           padding: const EdgeInsets.all(16),
@@ -626,31 +641,29 @@ class _QueuedRepaymentsScreenState extends State<QueuedRepaymentsScreen>
             ],
           ),
         ),
-
-        // Cancelled Repayments List
         Expanded(
           child: _cancelledRepayments.isEmpty
               ? const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.cancel, size: 64, color: Colors.grey),
-                      SizedBox(height: 16),
-                      Text(
-                        'No cancelled repayments',
-                        style: TextStyle(fontSize: 18, color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: _cancelledRepayments.length,
-                  itemBuilder: (context, index) {
-                    return _buildCancelledRepaymentCard(
-                      _cancelledRepayments[index],
-                    );
-                  },
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.cancel, size: 64, color: Colors.grey),
+                SizedBox(height: 16),
+                Text(
+                  'No cancelled repayments',
+                  style: TextStyle(fontSize: 18, color: Colors.grey),
                 ),
+              ],
+            ),
+          )
+              : ListView.builder(
+            itemCount: _cancelledRepayments.length,
+            itemBuilder: (context, index) {
+              return _buildCancelledRepaymentCard(
+                _cancelledRepayments[index],
+              );
+            },
+          ),
         ),
       ],
     );
